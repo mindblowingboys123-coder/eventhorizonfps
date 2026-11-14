@@ -17,8 +17,7 @@ export class MultiplayerClient {
   }
 
   connect(roomId = 'world-hub', playerName = 'Pilot', skinId = 'vanguard', weaponId = 'rifle') {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const wsUrl = 'wss://eventhorizonfps.onrender.com';
 
     this.ws = new WebSocket(wsUrl);
 
