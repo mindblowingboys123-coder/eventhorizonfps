@@ -471,17 +471,17 @@ class EventHorizonGame {
     // Admin Refresh Player Roster
     const btnRefPlayers = document.getElementById('btn-admin-refresh-players');
     if (btnRefPlayers) {
-      btnRefPlayers.addEventListener('click', () => {
-        if (this.multiplayer.isConnected) {
+        btnRefPlayers.addEventListener('click', async () => {
+        try {
+          await this.multiplayer.connectAdminOnly();
           this.multiplayer.requestAdminPlayerList();
-        } else {
+        } catch (e) {
           this.renderAdminPlayerRoster([{
             id: 'local_pilot',
             name: this.auth.profile.name,
             skin: this.auth.profile.equippedSkin,
             health: this.health,
-            shield: this.shield,
-            room: 'offline_local'
+            shield: this.shield
           }]);
         }
       });
