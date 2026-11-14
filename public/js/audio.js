@@ -1,3 +1,4 @@
+
 // EVENT HORIZON - PROCEDURAL WEB AUDIO SYNTHESIZER
 export class SoundEngine {
   constructor() {
@@ -10,6 +11,16 @@ export class SoundEngine {
     this.ambientPlaying = false;
     this.sfxVolume = 0.8;
     this.musicVolume = 0.6;
+
+    // NEW: Background music playlist
+    this.backgroundSongs = [
+      'audio/space-theme-1.mp3',
+      'audio/space-theme-2.mp3',
+      'audio/space-theme-3.mp3'
+    ];
+
+    this.currentSongIndex = 0;
+    this.backgroundAudio = null;
   }
 
   init() {
@@ -44,9 +55,19 @@ export class SoundEngine {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
+
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 1.0, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(
+        this.isMuted ? 0 : 1.0,
+        this.ctx.currentTime
+      );
     }
+
+    // NEW: Also mute background music
+    if (this.backgroundAudio) {
+      this.backgroundAudio.muted = this.isMuted;
+    }
+
     return !this.isMuted;
   }
 
@@ -59,8 +80,14 @@ export class SoundEngine {
 
   setMusicVolume(val) {
     this.musicVolume = val;
+
     if (this.musicGain && this.ctx) {
       this.musicGain.gain.setValueAtTime(val, this.ctx.currentTime);
+    }
+
+    // NEW: Also control playlist volume
+    if (this.backgroundAudio) {
+      this.backgroundAudio.volume = Math.max(0, Math.min(1, val));
     }
   }
 
@@ -74,7 +101,6 @@ export class SoundEngine {
 
     switch (weaponType) {
       case 'rifle': {
-        // Fast cyan laser pulse
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sawtooth';
@@ -92,7 +118,6 @@ export class SoundEngine {
       }
 
       case 'shotgun': {
-        // Heavy plasma burst + white noise
         const bufferSize = this.ctx.sampleRate * 0.25;
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const output = buffer.getChannelData(0);
@@ -112,7 +137,6 @@ export class SoundEngine {
         gain.gain.setValueAtTime(0.6, t);
         gain.gain.exponentialRampToValueAtTime(0.01, t + 0.25);
 
-        // Low kick punch
         const sub = this.ctx.createOscillator();
         const subGain = this.ctx.createGain();
         sub.type = 'sine';
@@ -135,7 +159,6 @@ export class SoundEngine {
       }
 
       case 'railgun': {
-        // High power cosmic rail beam
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'triangle';
@@ -153,7 +176,6 @@ export class SoundEngine {
       }
 
       case 'blaster': {
-        // Snappy energy pistol
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
@@ -233,7 +255,7 @@ export class SoundEngine {
     this.init();
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    // Click 1 (Eject cell)
+
     const osc1 = this.ctx.createOscillator();
     const g1 = this.ctx.createGain();
     osc1.frequency.setValueAtTime(700, t);
@@ -244,7 +266,6 @@ export class SoundEngine {
     osc1.start(t);
     osc1.stop(t + 0.09);
 
-    // Click 2 (Insert new cell)
     setTimeout(() => {
       if (!this.ctx) return;
       const t2 = this.ctx.currentTime;
@@ -299,14 +320,13 @@ export class SoundEngine {
     if (this.ambientPlaying || !this.ctx) return;
     this.ambientPlaying = true;
 
-    // Deep sub drone
     const oscSub = this.ctx.createOscillator();
     const oscHarm = this.ctx.createOscillator();
     const filter = this.ctx.createBiquadFilter();
     const gain = this.ctx.createGain();
 
     oscSub.type = 'sine';
-    oscSub.frequency.setValueAtTime(55, this.ctx.currentTime); // Low A
+    oscSub.frequency.setValueAtTime(55, this.ctx.currentTime);
 
     oscHarm.type = 'sawtooth';
     oscHarm.frequency.setValueAtTime(110, this.ctx.currentTime);
@@ -324,13 +344,87 @@ export class SoundEngine {
     oscSub.start();
     oscHarm.start();
 
-    // Subtle LFO modulation on filter for breathing cosmic atmosphere
     const lfo = this.ctx.createOscillator();
     const lfoGain = this.ctx.createGain();
-    lfo.frequency.setValueAtTime(0.15, this.ctx.currentTime); // 0.15 Hz sweep
+    lfo.frequency.setValueAtTime(0.15, this.ctx.currentTime);
     lfoGain.gain.setValueAtTime(120, this.ctx.currentTime);
     lfo.connect(lfoGain);
     lfoGain.connect(filter.frequency);
     lfo.start();
+  }
+
+  // ==========================================
+  // NEW: BACKGROUND MUSIC PLAYLIST
+  // ==========================================
+
+  playBackgroundMusic() {
+    if (!this.backgroundSongs.length) {
+      console.warn('No background songs configured.');
+      return;
+    }
+
+    if (!this.backgroundAudio) {
+      this.backgroundAudio = new Audio();
+
+      this.backgroundAudio.volume = Math.max(
+        0,
+        Math.min(1, this.musicVolume)
+      );
+
+      this.backgroundAudio.muted = this.isMuted;
+
+      this.backgroundAudio.addEventListener('ended', () => {
+        this.nextBackgroundSong();
+      });
+    }
+
+    this.backgroundAudio.src =
+      this.backgroundSongs[this.currentSongIndex];
+
+    this.backgroundAudio.loop = false;
+
+    this.backgroundAudio.play().catch(error => {
+      console.warn('Background music playback failed:', error);
+    });
+  }
+
+  nextBackgroundSong() {
+    if (!this.backgroundSongs.length) return;
+
+    this.currentSongIndex =
+      (this.currentSongIndex + 1) % this.backgroundSongs.length;
+
+    this.playBackgroundMusic();
+  }
+
+  previousBackgroundSong() {
+    if (!this.backgroundSongs.length) return;
+
+    this.currentSongIndex =
+      (this.currentSongIndex - 1 + this.backgroundSongs.length) %
+      this.backgroundSongs.length;
+
+    this.playBackgroundMusic();
+  }
+
+  pauseBackgroundMusic() {
+    if (this.backgroundAudio) {
+      this.backgroundAudio.pause();
+    }
+  }
+
+  resumeBackgroundMusic() {
+    if (this.backgroundAudio) {
+      this.backgroundAudio.play().catch(error => {
+        console.warn('Music resume failed:', error);
+      });
+    }
+  }
+
+  stopBackgroundMusic() {
+    if (this.backgroundAudio) {
+      this.backgroundAudio.pause();
+      this.backgroundAudio.currentTime = 0;
+    }
   }
 }
