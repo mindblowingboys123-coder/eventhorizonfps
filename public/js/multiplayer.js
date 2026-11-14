@@ -17,6 +17,7 @@ export class MultiplayerClient {
   }
 
   connect(roomId = 'world-hub', playerName = 'Pilot', skinId = 'vanguard', weaponId = 'rifle') {
+    if (this.ws) { this.ws.onclose = null; this.ws.close(); this.ws = null; }
     const wsUrl = 'wss://eventhorizonfps.onrender.com';
 
     this.ws = new WebSocket(wsUrl);
@@ -48,6 +49,22 @@ export class MultiplayerClient {
     };
   }
 
+  // Opens a connection WITHOUT joining a room (used by the admin roster)
+  connectAdminOnly() {
+    if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      // IMPORTANT: use the SAME wsUrl line that is in connect() below
+      const wsUrl = 'wss://eventhorizonfps.onrender.com';
+      this.ws = new WebSocket(wsUrl);
+      this.ws.onopen = () => { this.isConnected = true; resolve(); };
+      this.ws.onerror = () => reject(new Error('socket error'));
+      this.ws.onmessage = (event) => {
+        try { this.handleMessage(JSON.parse(event.data)); } catch (e) {}
+      };
+      this.ws.onclose = () => { this.isConnected = false; };
+    });
+  }
+  
   handleMessage(msg) {
     switch (msg.type) {
       case 'init': {
