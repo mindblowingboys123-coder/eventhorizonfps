@@ -348,7 +348,7 @@ export class MapManager {
 
     if (trimMat) {
       const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.4, d + 0.2), trimMat);
-      trim.position.set(x, y + h / 2 - 0.2, z);
+      trim.position.set(x, y + h / 2 - 0.3, z);
       parent.add(trim);
     }
 
