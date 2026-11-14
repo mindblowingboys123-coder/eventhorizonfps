@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EVENT HORIZON // 3D Sci-Fi FPS</title>
+  <link rel="stylesheet" href="css/style.css">
+  
+  <!-- Modern Three.js Import Map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- 3D WebGL Canvas -->
+  <div id="game-container">
+    <canvas id="canvas-3d"></canvas>
+  </div>
+
+  <!-- Red Flash Damage Vignette -->
+  <div id="damage-vignette"></div>
+
+  <!-- UI Root Layer -->
+  <div id="ui-root">
+    
+    <!-- MAIN MENU SCREEN -->
+    <div id="main-menu" class="menu-screen interactive">
+      <!-- Header -->
+      <div class="menu-header">
+        <div class="game-title-group">
+          <h1>EVENT HORIZON</h1>
+          <div class="subtitle">Singularity Combat Directive</div>
+        </div>
+        <div class="user-badge-bar">
+          <div class="stat-chip player" id="btn-open-account">
+            <span class="icon">👤</span>
+            <span id="header-player-name">Pilot</span>
+            <span id="header-player-rank" style="font-size:0.75rem; color:var(--text-muted);">(LVL 1)</span>
+          </div>
+          <div class="stat-chip credits">
+            <span class="icon">⬡</span>
+            <span id="header-credits-val">1,250</span> CR
+          </div>
+          <div class="stat-chip" id="firebase-status-badge" style="font-size:0.78rem; color:var(--primary-cyan); border:1px solid rgba(0,240,255,0.3); padding:6px 12px; border-radius:4px;">
+            🔥 FIREBASE: CODE CONFIG
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation & Center Panels -->
+      <div class="menu-center-grid">
+        <!-- Sidebar Navigation -->
+        <div class="nav-buttons-panel">
+          <button class="sci-btn primary" id="nav-btn-story">
+            <span>🌌</span> Story Campaign
+          </button>
+          <button class="sci-btn" id="nav-btn-multiplayer">
+            <span>🌐</span> World Server (MP)
+          </button>
+          <button class="sci-btn" id="nav-btn-shop">
+            <span>🛍️</span> Armory & Skins
+          </button>
+          <button class="sci-btn" id="nav-btn-settings">
+            <span>⚙️</span> System Settings
+          </button>
+          <button class="sci-btn" id="nav-btn-admin" style="display: none; border-left-color: #ffd166; background: rgba(255, 209, 102, 0.12); color:#ffd166;">
+            <span>⚡</span> Admin Console
+          </button>
+        </div>
+
+        <!-- Viewport Panels -->
+        <div class="menu-viewport-panel" id="viewport-panel">
+          
+          <!-- STORY MODE VIEW -->
+          <div id="view-story" class="view-content">
+            <h2 style="font-family:var(--font-display); letter-spacing:2px; margin-bottom: 8px;">CAMPAIGN DIRECTIVES</h2>
+            <p style="color:var(--text-muted); font-size:0.95rem;">Select an operation to deploy into the Event Horizon anomaly.</p>
+            
+            <div class="mission-grid">
+              <!-- Mission 1 -->
+              <div class="mission-card selected" data-mission="1">
+                <div class="mission-tag">CHAPTER 01</div>
+                <div class="mission-title">The Silent Station</div>
+                <div class="mission-desc">Aegis-7 has ceased transmissions near the accretion disk. Restore auxiliary fusion cells and neutralize corrupted sentinel drones.</div>
+                <div class="mission-reward"><span>REWARD:</span> 500 CR + Vanguard Skin</div>
+              </div>
+
+              <!-- Mission 2 -->
+              <div class="mission-card" data-mission="2">
+                <div class="mission-tag">CHAPTER 02</div>
+                <div class="mission-title">Core Defense</div>
+                <div class="mission-desc">Void infiltrators are breaching the primary reactor containment. Defend the thermal core through 3 intense swarm waves.</div>
+                <div class="mission-reward"><span>REWARD:</span> 1,200 CR + Void Blaster</div>
+              </div>
+
+              <!-- Mission 3 -->
+              <div class="mission-card" data-mission="3">
+                <div class="mission-tag">CHAPTER 03 - BOSS</div>
+                <div class="mission-title">Edge of the Abyss</div>
+                <div class="mission-desc">Cross the floating singularity asteroid field to confront the rogue A.P.E.X. Core Mech before gravitational collapse.</div>
+                <div class="mission-reward"><span>REWARD:</span> 3,000 CR + Obsidian Skin</div>
+              </div>
+            </div>
+
+            <div style="margin-top: 25px; display:flex; justify-content: flex-end;">
+              <button class="sci-btn primary" id="btn-start-story" style="font-size:1.15rem; padding: 16px 36px;">
+                🚀 LAUNCH MISSION
+              </button>
+            </div>
+          </div>
+
+          <!-- MULTIPLAYER SERVER VIEW -->
+          <div id="view-multiplayer" class="view-content" style="display: none;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <h2 style="font-family:var(--font-display); letter-spacing:2px; margin-bottom: 6px;">MULTIPLAYER WORLD SERVERS</h2>
+                <p style="color:var(--text-muted); font-size:0.95rem;">Join active combat sectors synchronized across all connected pilots.</p>
+              </div>
+              <button class="sci-btn" id="btn-refresh-servers" style="padding: 8px 16px; font-size:0.85rem;">🔄 REFRESH</button>
+            </div>
+
+            <div class="server-list" id="server-list-container">
+              <!-- Dynamically populated or default rooms -->
+              <div class="server-item">
+                <div class="server-info">
+                  <h4>Event Horizon // Global World Hub</h4>
+                  <div class="server-meta">
+                    <span>MAP: The Singularity Core</span>
+                    <span>MODE: Open World PvPvE</span>
+                    <span style="color:var(--primary-cyan);" class="srv-count">ONLINE PILOTS: ...</span>
+                  </div>
+                </div>
+                <button class="sci-btn primary btn-join-room" data-room="world-hub">JOIN BATTLE</button>
+              </div>
+
+              <div class="server-item">
+                <div class="server-info">
+                  <h4>Aegis Space Station Corridor</h4>
+                  <div class="server-meta">
+                    <span>MAP: Sector 7 Station</span>
+                    <span>MODE: Close Quarters Deathmatch</span>
+                    <span style="color:var(--primary-cyan);" class="srv-count">ONLINE PILOTS: ...</span>
+                  </div>
+                </div>
+                <button class="sci-btn btn-join-room" data-room="aegis-station">JOIN ARENA</button>
+              </div>
+
+              <div class="server-item">
+                <div class="server-info">
+                  <h4>Mars Red Dunes Outpost</h4>
+                  <div class="server-meta">
+                    <span>MAP: Red Canyon Dunes</span>
+                    <span>MODE: Tactical Combat</span>
+                    <span style="color:var(--primary-cyan);" class="srv-count">ONLINE PILOTS: ...</span>
+                  </div>
+                </div>
+                <button class="sci-btn btn-join-room" data-room="mars-outpost">JOIN ARENA</button>
+              </div>
+
+              <div class="server-item">
+                <div class="server-info">
+                  <h4>Cyber Void Jump Arena</h4>
+                  <div class="server-meta">
+                    <span>MAP: Cyber Neon Platforms</span>
+                    <span>MODE: High Speed Arena</span>
+                    <span style="color:var(--primary-cyan);" class="srv-count">ONLINE PILOTS: ...</span>
+                  </div>
+                </div>
+                <button class="sci-btn btn-join-room" data-room="cyber-void">JOIN ARENA</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SHOP & ARMORY VIEW -->
+          <div id="view-shop" class="view-content" style="display: none;">
+            <div class="shop-tabs">
+              <button class="tab-btn active" data-tab="skins">PLAYER SUITS & SKINS</button>
+              <button class="tab-btn" data-tab="weapons">WEAPON ARSENAL</button>
+              <button class="tab-btn" data-tab="camos">TRACER FX & CAMOS</button>
+            </div>
+
+            <!-- Tab: Skins -->
+            <div id="tab-content-skins" class="shop-grid">
+              <!-- Populated by JS -->
+            </div>
+
+            <!-- Tab: Weapons -->
+            <div id="tab-content-weapons" class="shop-grid" style="display: none;">
+              <!-- Populated by JS -->
+            </div>
+
+            <!-- Tab: Camos -->
+            <div id="tab-content-camos" class="shop-grid" style="display: none;">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+          <!-- SETTINGS VIEW -->
+          <div id="view-settings" class="view-content" style="display: none;">
+            <h2 style="font-family:var(--font-display); letter-spacing:2px; margin-bottom: 20px;">PILOT INTERFACE SETTINGS</h2>
+            
+            <div style="max-width: 500px; display:flex; flex-direction:column; gap: 18px;">
+              <div class="form-group">
+                <label>Mouse Sensitivity: <span id="val-sens">2.0</span></label>
+                <input type="range" id="input-sens" min="0.5" max="5.0" step="0.1" value="2.0" class="sci-input">
+              </div>
+
+              <div class="form-group">
+                <label>Field of View (FOV): <span id="val-fov">75</span>°</label>
+                <input type="range" id="input-fov" min="60" max="110" step="1" value="75" class="sci-input">
+              </div>
+
+              <div class="form-group">
+                <label>Master Sound FX Volume: <span id="val-sfx">80</span>%</label>
+                <input type="range" id="input-sfx" min="0" max="100" step="5" value="80" class="sci-input">
+              </div>
+
+              <div class="form-group">
+                <label>Atmospheric Music / Synth: <span id="val-music">60</span>%</label>
+                <input type="range" id="input-music" min="0" max="100" step="5" value="60" class="sci-input">
+              </div>
+
+              <div class="form-group">
+                <label>Visual Quality</label>
+                <select id="select-quality" class="sci-input">
+                  <option value="high">High (Shadows & Full Bloom)</option>
+                  <option value="medium">Medium (Balanced)</option>
+                  <option value="low">Low (Performance Boost)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- ADMIN COMMAND CONSOLE (OVERLORD ACCESS) -->
+          <div id="view-admin" class="view-content" style="display: none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,209,102,0.3); padding-bottom:12px; margin-bottom:18px;">
+              <div>
+                <h2 style="font-family:var(--font-display); letter-spacing:2px; color:#ffd166; margin-bottom: 4px;">
+                  ⚡ OVERLORD ADMIN CONSOLE
+                </h2>
+                <p style="color:var(--text-muted); font-size:0.92rem;">
+                  Authenticated as <b>HACKER@gmail.com</b>. Real-time control over all game mechanics, server physics, and players.
+                </p>
+              </div>
+              <span style="background:rgba(255,209,102,0.2); color:#ffd166; border:1px solid #ffd166; padding:4px 10px; border-radius:4px; font-family:var(--font-display); font-size:0.8rem; font-weight:bold;">
+                ROOT ACCESS GRANTED
+              </span>
+            </div>
+
+            <!-- SECTION 1: PERSONAL GOD-MODE CHEATS -->
+            <div style="background:rgba(255,209,102,0.06); border:1px solid rgba(255,209,102,0.25); border-radius:6px; padding:16px; margin-bottom:20px;">
+              <h4 style="font-family:var(--font-display); color:#ffd166; margin-bottom:12px; letter-spacing:1px;">
+                1. OVERLORD CHEATS &amp; GOD-MODE (SELF)
+              </h4>
+              <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:12px;">
+                <button class="sci-btn" id="btn-admin-godmode" style="padding:10px; justify-content:center; font-size:0.85rem;">
+                  🛡️ GOD MODE: <span id="val-admin-god" style="color:#ff0055; margin-left:4px;">OFF</span>
+                </button>
+                <button class="sci-btn" id="btn-admin-infammo" style="padding:10px; justify-content:center; font-size:0.85rem;">
+                  💥 INF AMMO: <span id="val-admin-ammo" style="color:#ff0055; margin-left:4px;">OFF</span>
+                </button>
+                <button class="sci-btn" id="btn-admin-speed" style="padding:10px; justify-content:center; font-size:0.85rem;">
+                  🚀 SPEED x2.5: <span id="val-admin-speed" style="color:#ff0055; margin-left:4px;">OFF</span>
+                </button>
+                <button class="sci-btn" id="btn-admin-gravity" style="padding:10px; justify-content:center; font-size:0.85rem;">
+                  🌕 MOON GRAV: <span id="val-admin-grav" style="color:#ff0055; margin-left:4px;">OFF</span>
+                </button>
+                <button class="sci-btn primary" id="btn-admin-unlockall" style="padding:10px; justify-content:center; font-size:0.85rem; grid-column: 1 / -1;">
+                  👑 UNLOCK ALL SKINS &amp; WEAPONS (+100K CR)
+                </button>
+              </div>
+            </div>
+
+            <!-- SECTION 2: MAP / LANDSCAPE MANIPULATION -->
+            <div style="background:rgba(0,240,255,0.06); border:1px solid rgba(0,240,255,0.25); border-radius:6px; padding:16px; margin-bottom:20px;">
+              <h4 style="font-family:var(--font-display); color:var(--primary-cyan); margin-bottom:12px; letter-spacing:1px;">
+                2. SECTOR LANDSCAPE OVERRIDE (FOR EVERYONE ON SERVER)
+              </h4>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+                Instantly shift the universe landscape for every player connected to the world server:
+              </p>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="sci-btn btn-admin-setmap" data-map="singularity" style="flex:1; padding:10px; justify-content:center; font-size:0.85rem;">
+                  🌀 The Singularity Core
+                </button>
+                <button class="sci-btn btn-admin-setmap" data-map="station" style="flex:1; padding:10px; justify-content:center; font-size:0.85rem;">
+                  🛰️ Aegis Space Station
+                </button>
+                <button class="sci-btn btn-admin-setmap" data-map="mars" style="flex:1; padding:10px; justify-content:center; font-size:0.85rem;">
+                  🔴 Mars Red Dunes
+                </button>
+                <button class="sci-btn btn-admin-setmap" data-map="cyber" style="flex:1; padding:10px; justify-content:center; font-size:0.85rem;">
+                  ⚡ Cyber Void Arena
+                </button>
+              </div>
+            </div>
+
+            <!-- SECTION 3: PLAYER MANAGEMENT (FOR ANYONE IN THE GAME) -->
+            <div style="background:rgba(255,0,85,0.06); border:1px solid rgba(255,0,85,0.25); border-radius:6px; padding:16px; margin-bottom:20px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h4 style="font-family:var(--font-display); color:#ff0055; letter-spacing:1px;">
+                  3. PLAYER ROSTER &amp; REMOTE ACTIONS (FOR ANYONE IN THE GAME)
+                </h4>
+                <button class="sci-btn" id="btn-admin-refresh-players" style="padding:6px 12px; font-size:0.75rem;">
+                  🔄 REFRESH ROSTER
+                </button>
+              </div>
+              <div id="admin-players-container" style="display:flex; flex-direction:column; gap:10px;">
+                <div style="color:var(--text-muted); font-size:0.88rem; font-style:italic;">
+                  Click "Refresh Roster" to view active players and apply remote actions.
+                </div>
+              </div>
+            </div>
+
+            <!-- SECTION 4: SERVER BROADCAST -->
+            <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:16px;">
+              <h4 style="font-family:var(--font-display); color:#fff; margin-bottom:10px; letter-spacing:1px;">
+                4. OVERLORD GLOBAL BROADCAST
+              </h4>
+              <div style="display:flex; gap:10px;">
+                <input type="text" id="admin-broadcast-input" class="sci-input" placeholder="Type an alert message to broadcast to all pilots..." style="flex:1;">
+                <button class="sci-btn primary" id="btn-admin-send-broadcast" style="padding:10px 20px; font-size:0.85rem;">
+                  TRANSMIT
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="menu-footer">
+        <div>
+          <span>CONTROLS:</span>
+          <span class="controls-pill">W,A,S,D</span> Move
+          <span class="controls-pill">SPACE</span> Jump
+          <span class="controls-pill">SHIFT</span> Sprint
+          <span class="controls-pill">C</span> Crouch
+          <span class="controls-pill">LEFT CLICK</span> Fire
+          <span class="controls-pill">R</span> Reload
+          <span class="controls-pill">1-4</span> Weapon
+          <span class="controls-pill">TAB</span> Scoreboard
+          <span class="controls-pill">ENTER</span> Chat
+        </div>
+        <div>EVENT HORIZON v1.0.4 // HYPERSPACE ENGINE</div>
+      </div>
+    </div>
+
+    <!-- ACCOUNT & FIREBASE MODAL -->
+    <div id="modal-account" class="modal-overlay hidden interactive">
+      <div class="modal-box">
+        <h3 class="modal-title">PILOT IDENTIFICATION</h3>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom: 18px;">
+          Sign in to preserve rank, credits, unlocked skins, and multiplayer stats across devices.
+        </p>
+
+        <div style="display:flex; gap:10px; margin-bottom: 15px;">
+          <button class="sci-btn primary" id="auth-tab-quick" style="flex:1; padding:10px; font-size:0.85rem;">Local / Guest</button>
+          <button class="sci-btn" id="auth-tab-firebase" style="flex:1; padding:10px; font-size:0.85rem;">Firebase Cloud</button>
+        </div>
+
+        <!-- Local Account Section -->
+        <div id="section-auth-local">
+          <div class="form-group">
+            <label>Callsign / Pilot Name</label>
+            <input type="text" id="input-pilot-name" class="sci-input" placeholder="Enter Call Sign..." maxlength="16" value="Ghost-7">
+          </div>
+          <div style="background:rgba(255,255,255,0.05); padding:12px; border-radius:4px; margin-bottom:16px;">
+            <div style="font-size:0.85rem; color:var(--text-muted);">LOCAL PILOT STATS</div>
+            <div style="display:flex; justify-content:space-between; margin-top:6px; font-family:var(--font-display); font-size:0.95rem;">
+              <span>KILLS: <b id="stat-kills" style="color:var(--primary-cyan);">0</b></span>
+              <span>DEATHS: <b id="stat-deaths">0</b></span>
+              <span>K/D: <b id="stat-kd">0.00</b></span>
+              <span>LEVEL: <b id="stat-lvl" style="color:var(--primary-gold);">1</b></span>
+            </div>
+          </div>
+          <button class="sci-btn primary" id="btn-save-profile" style="width:100%; justify-content:center;">UPDATE CALLSIGN</button>
+        </div>
+
+        <!-- Firebase Section -->
+        <div id="section-auth-firebase" style="display: none;">
+          <div style="background: rgba(0, 240, 255, 0.08); border: 1px solid rgba(0, 240, 255, 0.3); padding: 12px; border-radius: 6px; margin-bottom: 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-family:var(--font-display); color:var(--primary-cyan); font-size:0.85rem;">
+                🔥 PROJECT: eventhorizenfps
+              </span>
+              <span id="fb-live-status" style="font-size:0.75rem; color:#00ff88; font-weight:bold;">CONNECTED</span>
+            </div>
+            <div id="fb-user-display" style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">
+              Status: Ready for pilot authentication
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Pilot Email</label>
+            <input type="email" id="fb-email" class="sci-input" placeholder="pilot@eventhorizon.com">
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="fb-password" class="sci-input" placeholder="••••••••" minlength="6">
+          </div>
+
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button class="sci-btn primary" id="btn-fb-signin" style="flex:1; justify-content:center; padding:10px;">SIGN IN</button>
+            <button class="sci-btn" id="btn-fb-signup" style="flex:1; justify-content:center; padding:10px;">REGISTER</button>
+          </div>
+
+          <div style="text-align:center; margin:12px 0 6px 0; color:var(--text-muted); font-size:0.8rem;">— OR INSTANT CLOUD ACCESS —</div>
+
+          <button class="sci-btn" id="btn-fb-guest" style="width:100%; justify-content:center; padding:10px;">
+            ⚡ INSTANT CLOUD GUEST LOGIN
+          </button>
+        </div>
+
+        <button class="sci-btn danger" id="btn-close-account-modal" style="width:100%; margin-top: 15px; justify-content:center;">
+          RETURN TO BRIDGE
+        </button>
+      </div>
+    </div>
+
+    <!-- IN-GAME HUD -->
+    <div id="hud-container" class="hidden">
+      <!-- Reticle / Crosshair -->
+      <div id="reticle-wrap">
+        <div class="crosshair-center"></div>
+        <div class="crosshair-line top"></div>
+        <div class="crosshair-line bottom"></div>
+        <div class="crosshair-line left"></div>
+        <div class="crosshair-line right"></div>
+        <div id="hit-marker"></div>
+      </div>
+
+      <!-- Radar / Minimap -->
+      <div class="hud-radar">
+        <canvas id="radar-canvas" width="130" height="130"></canvas>
+      </div>
+
+      <!-- Objective Prompt (Story Mode) -->
+      <div class="hud-objective" id="hud-objective">
+        <div class="obj-title" id="hud-obj-title">OBJECTIVE</div>
+        <div class="obj-text" id="hud-obj-text">Restore Sector 7 Power Cells</div>
+      </div>
+
+      <!-- Boss Bar -->
+      <div class="hud-boss" id="hud-boss">
+        <div class="boss-name" id="boss-name">A.P.E.X. VOID COLOSSUS</div>
+        <div class="boss-track">
+          <div class="boss-fill" id="boss-health-fill"></div>
+        </div>
+      </div>
+
+      <!-- Kill Feed -->
+      <div class="hud-killfeed" id="hud-killfeed"></div>
+
+      <!-- Chat Box -->
+      <div class="hud-chat">
+        <div class="chat-log" id="chat-log"></div>
+        <div class="chat-input-wrap" id="chat-input-wrap">
+          <input type="text" id="chat-input" placeholder="Press Enter to send chat..." maxlength="120">
+        </div>
+      </div>
+
+      <!-- Vitals (Health & Shield) -->
+      <div class="hud-vitals">
+        <div class="bar-wrap">
+          <div class="bar-meta">
+            <span style="color:var(--primary-cyan);">SHIELD</span>
+            <span id="hud-shield-val">50 / 50</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill shield" id="hud-shield-fill"></div>
+          </div>
+        </div>
+
+        <div class="bar-wrap">
+          <div class="bar-meta">
+            <span style="color:#ff0055;">HEALTH</span>
+            <span id="hud-health-val">100 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill health" id="hud-health-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weapon & Ammo -->
+      <div class="hud-weapon">
+        <div class="weapon-name" id="hud-weapon-name">PLASMA PULSE RIFLE</div>
+        <div class="ammo-counter">
+          <span id="hud-ammo-cur">30</span>
+          <span class="reserve">/ <span id="hud-ammo-res">120</span></span>
+        </div>
+        <div class="reload-badge" id="hud-reload-badge">RELOADING...</div>
+      </div>
+    </div>
+
+    <!-- PAUSE MENU (ESC) -->
+    <div id="pause-menu" class="hidden interactive">
+      <h2>TACTICAL PAUSE</h2>
+      <button class="sci-btn primary" id="btn-resume-game" style="width:260px; justify-content:center;">RESUME COMBAT</button>
+      <button class="sci-btn" id="btn-toggle-sound" style="width:260px; justify-content:center;">MUTE / UNMUTE AUDIO</button>
+      <button class="sci-btn danger" id="btn-exit-to-menu" style="width:260px; justify-content:center;">ABORT TO MAIN MENU</button>
+    </div>
+
+    <!-- SCOREBOARD MODAL (TAB) -->
+    <div id="scoreboard-modal" class="interactive">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="font-family:var(--font-display); letter-spacing:2px; color:var(--primary-cyan);">SECTOR COMBAT ROSTER</h3>
+        <span id="sb-room-name" style="color:var(--text-muted); font-size:0.9rem;">World Server Alpha</span>
+      </div>
+      <table class="score-table">
+        <thead>
+          <tr>
+            <th>PILOT</th>
+            <th>SUIT SKIN</th>
+            <th>KILLS</th>
+            <th>DEATHS</th>
+            <th>SCORE</th>
+          </tr>
+        </thead>
+        <tbody id="score-table-body">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Game Modules -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
