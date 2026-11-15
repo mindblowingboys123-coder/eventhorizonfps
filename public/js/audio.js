@@ -317,42 +317,32 @@ export class SoundEngine {
 
   // --- AMBIENT SPACE DRONE / SYNTH BACKGROUND ---
   startAmbientDrone() {
-    if (this.ambientPlaying || !this.ctx) return;
-    this.ambientPlaying = true;
+  if (this.ambientPlaying) return;
+  this.ambientPlaying = true;
 
-    const oscSub = this.ctx.createOscillator();
-    const oscHarm = this.ctx.createOscillator();
-    const filter = this.ctx.createBiquadFilter();
-    const gain = this.ctx.createGain();
+  // Real background music
+  this.bgMusic = new Audio('/audio/ambient_space.mp3');
+  this.bgMusic.loop = true;
+  this.bgMusic.volume = this.musicVolume;
 
-    oscSub.type = 'sine';
-    oscSub.frequency.setValueAtTime(55, this.ctx.currentTime);
+  const tryPlay = () => {
+    this.bgMusic.play().catch(() => {
+      // Autoplay blocked — wait for first user interaction
+      const unlock = () => {
+        this.bgMusic.play().catch(() => {});
+        document.removeEventListener('click', unlock);
+        document.removeEventListener('keydown', unlock);
+      };
+      document.addEventListener('click', unlock);
+      document.addEventListener('keydown', unlock);
+    });
+  };
 
-    oscHarm.type = 'sawtooth';
-    oscHarm.frequency.setValueAtTime(110, this.ctx.currentTime);
+  tryPlay();
 
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(350, this.ctx.currentTime);
-
-    gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
-
-    oscSub.connect(filter);
-    oscHarm.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.musicGain);
-
-    oscSub.start();
-    oscHarm.start();
-
-    const lfo = this.ctx.createOscillator();
-    const lfoGain = this.ctx.createGain();
-    lfo.frequency.setValueAtTime(0.15, this.ctx.currentTime);
-    lfoGain.gain.setValueAtTime(120, this.ctx.currentTime);
-    lfo.connect(lfoGain);
-    lfoGain.connect(filter.frequency);
-    lfo.start();
-  }
-
+  // Keep the Web Audio context alive for SFX
+  if (!this.ctx) return;
+}
   // ==========================================
   // NEW: BACKGROUND MUSIC PLAYLIST
   // ==========================================
