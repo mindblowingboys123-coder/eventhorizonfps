@@ -7,6 +7,7 @@ export class MapManager {
     this.currentMapGroup = null;
     this.colliders = [];
     this.animatedObjects = [];
+    this.jumpPads = [];
     this.currentMapId = 'singularity';
   }
 
@@ -17,6 +18,7 @@ export class MapManager {
       this.currentMapGroup = null;
     }
     this.colliders = [];
+    this.jumpPads = [];
     this.animatedObjects = [];
     this.currentMapId = mapId;
 
@@ -38,6 +40,9 @@ export class MapManager {
         spawnPoints = this.buildSingularityCore(mapGroup);
         break;
     }
+
+    // Hand jump pads to the controls through the colliders array
+    this.colliders.jumpPads = this.jumpPads;
 
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
@@ -127,8 +132,8 @@ export class MapManager {
     // 4 Satellite Outer Platforms
     this.createPlatform(group, 45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
     this.createPlatform(group, -45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 8, 45, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 8, -45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 7, 45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 7, -45, 22, 2.5, 22, platformMat, metalTrimMat);
 
     // Glowing Holographic Bridges connecting center to outer platforms
     this.createBridge(group, 27, 2.5, 0, 18, 0.2, 6, energyBridgeMat);
@@ -406,6 +411,7 @@ export class MapManager {
     const pad = new THREE.Mesh(padGeo, padMat);
     pad.position.set(x, y, z);
     parent.add(pad);
+    this.jumpPads.push({ x, y, z, r: 1.9 });
   }
 
   addBoxCollider(x, y, z, w, h, d) {
