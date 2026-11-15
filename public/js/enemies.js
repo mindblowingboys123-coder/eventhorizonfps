@@ -1,23 +1,193 @@
 // EVENT HORIZON - STORY ENEMIES & AI BOSS SYSTEM
 import * as THREE from 'three';
 
+// What the enemies are thinking (shown in speech bubbles over their heads)
+const THOUGHTS = {
+  drone: {
+    idle: ['Scanning...', 'Beep. Boop. Hunting.', 'Is that... a human?', 'My battery is at 4%...', 'I hover. Therefore I am.', 'Zzz... target... zzz...', 'Why do I have no legs?', 'Must. Protect. The Hollow.'],
+    spot: ['HUMAN SPOTTED!', 'Found you!', 'Intruder! Intruder!', 'Engaging target!'],
+    hurt: ['OW!', 'Hey! Rude!', 'My circuits!', 'That actually hurt!', 'Ouch ouch ouch!'],
+    low: ['Systems failing...', 'I do not feel so good...', 'Tell my mom I was a hero', 'Warning: very dead soon'],
+    die: ['NOOOOOO!!!', 'I REGRET NOTHING!', 'ERROR ERROR ERROR', 'Tell the toaster I loved it', 'Not the face!!!', 'I was only 3 days old!', 'KABOOOOOM!']
+  },
+  infiltrator: {
+    idle: ['I smell fear...', 'Silent. Deadly. Cool.', 'Hunting...', 'Come out, little human', 'Stab stab stab...', 'I am speed.'],
+    spot: ['THERE YOU ARE!', 'Fresh meat!', 'You cannot run!'],
+    hurt: ['You got lucky!', 'Impossible!', 'That stings!', 'Hold still!'],
+    low: ['I... can still win!', 'Not like this...', 'Retreat? NEVER!'],
+    die: ['IMPOSSIBLE!!!', 'The Hollow will avenge me!', 'NOOOOOO!!!', 'I was the fast one!', 'Tell them I was cool...']
+  },
+  boss: {
+    idle: ['Kneel before the abyss.', 'You cannot win, human.', 'I have eaten stars.', 'Pathetic.', 'Your ship is gone. Forever.', 'Feel the pull...'],
+    spot: ['You dare enter MY abyss?!', 'Another fly to swat.'],
+    hurt: ['You SCRATCHED me?!', 'INSOLENT!', 'Is that all?!', 'Hrrrgh!'],
+    low: ['This cannot be...', 'I am eternal!'],
+    phase1: ["Now I'm ANGRY.", 'You will regret that!', 'The void grows hungry...'],
+    phase2: ['ENOUGH!!! FEEL THE VOID!', 'I WILL NOT FALL!', 'DIE DIE DIE!!!'],
+    die: ['NOOOOOO!!! THE VOID TAKES ME...', 'IMPOSSIBLE!!! NOOOO!!!']
+  }
+};
+
 export class EnemyManager {
   constructor(scene, soundEngine) {
     this.scene = scene;
     this.sound = soundEngine;
     this.enemies = [];
     this.boss = null;
+    this.floaters = [];
   }
 
+  // ---------- SPEECH BUBBLES ----------
+  makeBubble(yOffset, scale) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const tex = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.set(0, yOffset, 0);
+    sprite.scale.set(4.2 * scale, 1.05 * scale, 1);
+    sprite.renderOrder = 999;
+    sprite.visible = false;
+    sprite.raycast = () => {}; // bullets pass through speech bubbles
+    return { sprite, canvas, ctx, tex, timer: 0 };
+  }
+
+  drawBubble(b, text, color) {
+    const ctx = b.ctx, cw = b.canvas.width;
+    ctx.clearRect(0, 0, cw, b.canvas.height);
+    ctx.font = 'bold 44px Rajdhani, Arial, sans-serif';
+    const w = Math.min(496, ctx.measureText(text).width + 48);
+    const x = (cw - w) / 2, y = 12, h = 74, r = 18;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(8, 12, 26, 0.9)';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    // little tail pointing down at the speaker
+    ctx.beginPath();
+    ctx.moveTo(cw / 2 - 12, y + h - 1);
+    ctx.lineTo(cw / 2, y + h + 28);
+    ctx.lineTo(cw / 2 + 12, y + h - 1);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cw / 2, y + h / 2 + 2, 470);
+    b.tex.needsUpdate = true;
+  }
+
+  attachBrain(e, group, yOffset, scale, color) {
+    e.bubble = this.makeBubble(yOffset, scale);
+    e.bubbleColor = color;
+    e.thinkTimer = 1 + Math.random() * 4;
+    e.spotted = false;
+    e.saidLow = false;
+    group.add(e.bubble.sprite);
+  }
+
+  disposeBrain(e) {
+    if (!e.bubble) return;
+    e.bubble.tex.dispose();
+    e.bubble.sprite.material.dispose();
+  }
+
+  pick(e, key) {
+    const set = THOUGHTS[e.type] || THOUGHTS.drone;
+    const list = set[key] || set.idle;
+    return list[Math.floor(Math.random() * list.length)];
+  }
+
+  say(e, text, seconds = 2.2, color) {
+    if (!e || !e.bubble) return;
+    this.drawBubble(e.bubble, text, color || e.bubbleColor || '#00f0ff');
+    e.bubble.sprite.visible = true;
+    e.bubble.timer = seconds;
+  }
+
+  think(e, delta, dist) {
+    const b = e.bubble;
+    if (!b) return;
+    if (b.timer > 0) {
+      b.timer -= delta;
+      if (b.timer <= 0) b.sprite.visible = false;
+      return;
+    }
+    if (!e.spotted && dist < e.shootRange * 1.5) {
+      e.spotted = true;
+      this.say(e, this.pick(e, 'spot'), 2);
+      return;
+    }
+    e.thinkTimer -= delta;
+    if (e.thinkTimer <= 0) {
+      e.thinkTimer = 5 + Math.random() * 6;
+      this.say(e, this.pick(e, 'idle'), 2.6);
+    }
+  }
+
+  reactHurt(e) {
+    if (!e.bubble) return;
+    if (!e.saidLow && e.health < e.maxHealth * 0.3) {
+      e.saidLow = true;
+      this.say(e, this.pick(e, 'low'), 2.4);
+    } else if (Math.random() < 0.3) {
+      this.say(e, this.pick(e, 'hurt'), 1.6);
+    }
+  }
+
+  reactBoss(b, before) {
+    const max = b.maxHealth;
+    if (b.health <= 0) {
+      if (!b.dead) {
+        b.dead = true;
+        this.say(b, this.pick(b, 'die'), 8);
+      }
+    } else if (before > max * 0.66 && b.health <= max * 0.66) {
+      this.say(b, this.pick(b, 'phase1'), 3);
+    } else if (before > max * 0.33 && b.health <= max * 0.33) {
+      this.say(b, this.pick(b, 'phase2'), 3);
+    } else if (Math.random() < 0.12) {
+      this.say(b, this.pick(b, 'hurt'), 1.6);
+    }
+  }
+
+  spawnFloater(pos, text, color) {
+    const b = this.makeBubble(0, 1);
+    this.drawBubble(b, text, color || '#ff4d79');
+    b.sprite.visible = true;
+    b.sprite.position.copy(pos).add(new THREE.Vector3(0, 1.7, 0));
+    this.scene.add(b.sprite);
+    this.floaters.push({ sprite: b.sprite, tex: b.tex, life: 2.4 });
+  }
+
+  removeFloater(f) {
+    this.scene.remove(f.sprite);
+    f.tex.dispose();
+    f.sprite.material.dispose();
+  }
   clear() {
     for (let i = 0; i < this.enemies.length; i++) {
+      this.disposeBrain(this.enemies[i]);
       this.scene.remove(this.enemies[i].mesh);
     }
     this.enemies = [];
     if (this.boss) {
+      this.disposeBrain(this.boss);
       this.scene.remove(this.boss.mesh);
       this.boss = null;
     }
+    for (let i = 0; i < this.floaters.length; i++) this.removeFloater(this.floaters[i]);
+    this.floaters = [];
   }
 
   spawnDrone(position) {
@@ -66,6 +236,7 @@ export class EnemyManager {
       hoverOffset: Math.random() * Math.PI * 2
     };
 
+    this.attachBrain(enemy, group, 1.7, 1, '#ff4d79');
     this.enemies.push(enemy);
     return enemy;
   }
@@ -105,11 +276,12 @@ export class EnemyManager {
       hoverOffset: Math.random() * Math.PI * 2
     };
 
+    this.attachBrain(enemy, group, 2.0, 1, '#b57bff');
     this.enemies.push(enemy);
     return enemy;
   }
 
-  spawnBoss(position) {
+  spawnBoss(position, opts = {}) {
     const group = new THREE.Group();
 
     // Giant central boss core
@@ -141,21 +313,25 @@ export class EnemyManager {
     group.position.copy(position);
     this.scene.add(group);
 
+    const hp = opts.health || 1200;
     this.boss = {
       id: 'apex_colossus',
       type: 'boss',
+      name: opts.name || 'A.P.E.X. Void Colossus',
       mesh: group,
       shield1,
       shield2,
-      health: 1200,
-      maxHealth: 1200,
+      health: hp,
+      maxHealth: hp,
       speed: 4.5,
-      attackCooldown: 1.5,
+      attackCooldown: opts.attackCooldown || 1.5,
       lastAttackTime: 0,
       shootRange: 50,
-      damage: 30,
+      damage: opts.damage || 30,
       hoverOffset: 0
     };
+    this.attachBrain(this.boss, group, 7.2, 2.6, '#ffd166');
+    this.say(this.boss, 'You dare enter MY abyss?!', 3.5, '#ffd166');
 
     return this.boss;
   }
@@ -176,6 +352,7 @@ export class EnemyManager {
 
       // Distance to player
       const dist = e.mesh.position.distanceTo(playerPos);
+      this.think(e, delta, dist);
 
       // Move toward player if not too close
       if (dist > 8) {
@@ -211,9 +388,10 @@ export class EnemyManager {
       b.shield2.rotation.x += delta * 1.2;
 
       const dist = b.mesh.position.distanceTo(playerPos);
+      this.think(b, delta, dist);
       b.mesh.lookAt(playerPos.x, b.mesh.position.y, playerPos.z);
 
-      if (time - b.lastAttackTime >= b.attackCooldown) {
+      if (b.health > 0 && time - b.lastAttackTime >= b.attackCooldown) {
         b.lastAttackTime = time;
         const shootDir = new THREE.Vector3().subVectors(playerPos, b.mesh.position).normalize();
 
@@ -227,12 +405,27 @@ export class EnemyManager {
         }
       }
     }
+
+    // 3. Floating last words (bubbles that drift up after an enemy dies)
+    for (let i = this.floaters.length - 1; i >= 0; i--) {
+      const f = this.floaters[i];
+      f.life -= delta;
+      f.sprite.position.y += delta * 1.6;
+      f.sprite.material.opacity = Math.max(0, Math.min(1, f.life / 0.6));
+      if (f.life <= 0) {
+        this.removeFloater(f);
+        this.floaters.splice(i, 1);
+      }
+    }
   }
 
   damageEnemy(enemyId, amount) {
     if (this.boss && (enemyId === 'boss' || enemyId === this.boss.id)) {
-      this.boss.health -= amount;
-      return { isDead: this.boss.health <= 0, remaining: this.boss.health, target: this.boss };
+      const b = this.boss;
+      const before = b.health;
+      b.health -= amount;
+      this.reactBoss(b, before);
+      return { isDead: b.health <= 0, remaining: b.health, target: b };
     }
 
     const enemy = this.enemies.find(e => e.id === enemyId);
@@ -241,7 +434,11 @@ export class EnemyManager {
     enemy.health -= amount;
     const isDead = enemy.health <= 0;
 
+    if (!isDead) this.reactHurt(enemy);
+
     if (isDead) {
+      this.spawnFloater(enemy.mesh.position, this.pick(enemy, 'die'), enemy.bubbleColor);
+      this.disposeBrain(enemy);
       this.scene.remove(enemy.mesh);
       this.enemies = this.enemies.filter(e => e.id !== enemyId);
     }
