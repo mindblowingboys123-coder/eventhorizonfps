@@ -1,3 +1,4 @@
+
 // EVENT HORIZON - WEBSOCKET MULTIPLAYER WORLD CLIENT
 import * as THREE from 'three';
 
@@ -16,14 +17,31 @@ export class MultiplayerClient {
     this.lastSendMoveTime = 0;
   }
 
+  // Check that the WebSocket is actually ready to send data
+  isSocketOpen() {
+    return this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
   connect(roomId = 'world-hub', playerName = 'Pilot', skinId = 'vanguard', weaponId = 'rifle') {
-    if (this.ws) { this.ws.onclose = null; this.ws.close(); this.ws = null; }
+    // Reset connection state before replacing an old socket
+    this.isConnected = false;
+
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
     const wsUrl = 'wss://eventhorizonfps.onrender.com';
 
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
       this.isConnected = true;
+
+      // Only send after the socket is OPEN
+      if (!this.isSocketOpen()) return;
+
       this.ws.send(JSON.stringify({
         type: 'join',
         room: roomId,
@@ -42,6 +60,10 @@ export class MultiplayerClient {
       }
     };
 
+    this.ws.onerror = (error) => {
+      console.error('Multiplayer WebSocket error:', error);
+    };
+
     this.ws.onclose = () => {
       this.isConnected = false;
       this.clearAllRemotePlayers();
@@ -51,20 +73,47 @@ export class MultiplayerClient {
 
   // Opens a connection WITHOUT joining a room (used by the admin roster)
   connectAdminOnly() {
-    if (this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (this.isSocketOpen()) {
+      this.isConnected = true;
+      return Promise.resolve();
+    }
+
+    this.isConnected = false;
+
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+
     return new Promise((resolve, reject) => {
-      // IMPORTANT: use the SAME wsUrl line that is in connect() below
       const wsUrl = 'wss://eventhorizonfps.onrender.com';
       this.ws = new WebSocket(wsUrl);
-      this.ws.onopen = () => { this.isConnected = true; resolve(); };
-      this.ws.onerror = () => reject(new Error('socket error'));
-      this.ws.onmessage = (event) => {
-        try { this.handleMessage(JSON.parse(event.data)); } catch (e) {}
+
+      this.ws.onopen = () => {
+        this.isConnected = true;
+        resolve();
       };
-      this.ws.onclose = () => { this.isConnected = false; };
+
+      this.ws.onerror = () => {
+        this.isConnected = false;
+        reject(new Error('socket error'));
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          this.handleMessage(JSON.parse(event.data));
+        } catch (e) {
+          console.error('Error parsing admin WebSocket message:', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this.isConnected = false;
+      };
     });
   }
-  
+
   handleMessage(msg) {
     switch (msg.type) {
       case 'init': {
@@ -218,7 +267,8 @@ export class MultiplayerClient {
   }
 
   sendMove(pos, rotX, rotY, isMoving, isCrouching) {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     const now = performance.now();
     if (now - this.lastSendMoveTime > 30) { // ~33hz
       this.lastSendMoveTime = now;
@@ -236,7 +286,8 @@ export class MultiplayerClient {
   }
 
   sendShoot(origin, direction, weaponId, tracerColor) {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     this.ws.send(JSON.stringify({
       type: 'shoot',
       origin: { x: origin.x, y: origin.y, z: origin.z },
@@ -247,7 +298,8 @@ export class MultiplayerClient {
   }
 
   sendHit(targetId, damage, weaponId) {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     this.ws.send(JSON.stringify({
       type: 'hit',
       targetId: targetId,
@@ -257,12 +309,14 @@ export class MultiplayerClient {
   }
 
   sendRespawn() {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     this.ws.send(JSON.stringify({ type: 'respawn' }));
   }
 
   sendChat(text) {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     this.ws.send(JSON.stringify({ type: 'chat', text: text }));
   }
 
@@ -270,8 +324,10 @@ export class MultiplayerClient {
     // Interpolate remote players
     for (const id in this.otherPlayers) {
       const rp = this.otherPlayers[id];
+
       // Smooth movement LERP
       rp.model.position.lerp(rp.targetPos, Math.min(1, delta * 15));
+
       // Smooth rotation LERP
       rp.model.rotation.y += (rp.targetRot - rp.model.rotation.y) * Math.min(1, delta * 12);
 
@@ -289,7 +345,8 @@ export class MultiplayerClient {
   }
 
   sendAdminAction(action, targetId = null, extra = {}) {
-    if (!this.isConnected || !this.ws) return;
+    if (!this.isSocketOpen()) return;
+
     this.ws.send(JSON.stringify({
       type: 'admin_action',
       auth: { email: 'HACKER@gmail.com', password: 'H@CK#R123!' },
@@ -308,6 +365,7 @@ export class MultiplayerClient {
       this.ws.close();
       this.ws = null;
     }
+
     this.clearAllRemotePlayers();
     this.isConnected = false;
   }
