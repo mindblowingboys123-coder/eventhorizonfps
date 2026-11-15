@@ -79,11 +79,14 @@ export class SoundEngine {
   }
 
   setMusicVolume(val) {
-    this.musicVolume = val;
-
-    if (this.musicGain && this.ctx) {
-      this.musicGain.gain.setValueAtTime(val, this.ctx.currentTime);
-    }
+  this.musicVolume = val;
+  if (this.musicGain && this.ctx) {
+    this.musicGain.gain.setValueAtTime(val, this.ctx.currentTime);
+  }
+  if (this.bgMusic) {
+    this.bgMusic.volume = Math.max(0, Math.min(1, val));
+  }
+}
 
     // NEW: Also control playlist volume
     if (this.backgroundAudio) {
