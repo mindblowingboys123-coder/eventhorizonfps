@@ -4,8 +4,41 @@ const path = require('path');
 const WebSocket = require('ws');
 
 const app = express();
+
+// Allow requests from your Firebase-hosted game
+const allowedOrigins = [
+  'https://eventhorizenfps.web.app',
+  'https://eventhorizenfps.firebaseapp.com'
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS'
+  );
+
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization'
+  );
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
+
 
 const PORT = process.env.PORT || 3000;
 
