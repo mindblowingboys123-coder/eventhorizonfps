@@ -596,19 +596,25 @@ class EventHorizonGame {
   }
 
   fetchServerList() {
-    fetch('/api/rooms')
-      .then(res => res.json())
-      .then(rooms => {
-        const countSpans = document.querySelectorAll('.srv-count');
-        rooms.forEach((r, i) => {
-          if (countSpans[i]) {
-            countSpans[i].innerText = `ONLINE PILOTS: ${r.playerCount}`;
-          }
-        });
-      })
-      .catch(() => {});
-  }
-
+  fetch('https://eventhorizonfps.onrender.com/api/rooms')
+    .then(res => {
+      if (!res.ok) {
+        throw new Error(`Server list request failed: ${res.status}`);
+      }
+      return res.json();
+    })
+    .then(rooms => {
+      const countSpans = document.querySelectorAll('.srv-count');
+      rooms.forEach((r, i) => {
+        if (countSpans[i]) {
+          countSpans[i].innerText = `ONLINE PILOTS: ${r.playerCount}`;
+        }
+      });
+    })
+    .catch(error => {
+      console.error('Could not load multiplayer server list:', error);
+    });
+}
   startStoryMode(missionId = 1) {
     this.gameState = 'STORY';
     this.resetVitals();
