@@ -270,6 +270,12 @@ wss.on('connection', (ws) => {
           const targetId = data.targetId;
           const roomId = currentRoom || 'world-hub';
 
+          const targetRoomId = targetId
+          ? Object.keys(rooms).find(
+              id => rooms[id].players[targetId]
+            )
+          : null;
+
           switch (action) {
             case 'kill_player': {
               if (rooms[roomId] && rooms[roomId].players[targetId]) {
@@ -368,19 +374,30 @@ wss.on('connection', (ws) => {
               break;
             }
 
+
             case 'get_players': {
               const pList = [];
-              if (rooms[roomId]) {
-                for (const pid in rooms[roomId].players) {
-                  pList.push(rooms[roomId].players[pid]);
+            
+              // Collect players from EVERY room
+              for (const [roomId, room] of Object.entries(rooms)) {
+                for (const player of Object.values(room.players)) {
+                  pList.push({
+                    ...player,
+                    roomId: roomId,
+                    roomName: room.name
+                  });
                 }
               }
-              ws.send(JSON.stringify({ type: 'admin_player_list', players: pList }));
+            
+              // Send the complete global player roster
+              ws.send(JSON.stringify({
+                type: 'admin_player_list',
+                players: pList
+              }));
+            
               break;
             }
-          }
-          break;
-        }
+
 
         case 'chat': {
           if (!currentRoom || !rooms[currentRoom] || !rooms[currentRoom].players[playerId]) return;
