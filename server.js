@@ -374,10 +374,9 @@ wss.on('connection', (ws) => {
               break;
             }
 
-
             case 'get_players': {
               const pList = [];
-            
+
               // Collect players from EVERY room
               for (const [roomId, room] of Object.entries(rooms)) {
                 for (const player of Object.values(room.players)) {
@@ -388,16 +387,18 @@ wss.on('connection', (ws) => {
                   });
                 }
               }
-            
+
               // Send the complete global player roster
               ws.send(JSON.stringify({
                 type: 'admin_player_list',
                 players: pList
               }));
-            
+
               break;
             }
-
+          }
+          break;
+        }
 
         case 'chat': {
           if (!currentRoom || !rooms[currentRoom] || !rooms[currentRoom].players[playerId]) return;
