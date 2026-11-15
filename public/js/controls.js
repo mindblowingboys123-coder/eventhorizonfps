@@ -109,7 +109,7 @@ export class FPSControls {
       case 'Space':
         if (this.canJump) {
           const isMoon = this.auth && this.auth.profile && this.auth.profile.moonGravity;
-          this.velocity.y = isMoon ? 22.0 : 12.0;
+          this.velocity.y = isMoon ? 24.0 : 15.0;
           this.canJump = false;
           if (this.sound) this.sound.playJump();
         }
@@ -170,6 +170,21 @@ export class FPSControls {
     // Gravity
     const grav = (this.auth && this.auth.profile && this.auth.profile.moonGravity) ? 10.0 : 28.0;
     this.velocity.y -= grav * delta;
+
+    // Jump pads: launch the player high into the air
+    const pads = this.colliders.jumpPads || [];
+    for (let i = 0; i < pads.length; i++) {
+      const p = pads[i];
+      const pdx = this.camera.position.x - p.x;
+      const pdz = this.camera.position.z - p.z;
+      const feetY = this.camera.position.y - this.currentHeight;
+      if (pdx * pdx + pdz * pdz < p.r * p.r && feetY <= p.y + 0.8 && feetY >= p.y - 1.0 && this.velocity.y <= 1) {
+        this.velocity.y = 30.0;
+        this.canJump = false;
+        if (this.sound) this.sound.playJump();
+        break;
+      }
+    }
 
     // Determine speed
     let baseSpeed = 48.0;
