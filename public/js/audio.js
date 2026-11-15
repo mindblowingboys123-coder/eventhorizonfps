@@ -1,4 +1,3 @@
-
 // EVENT HORIZON - PROCEDURAL WEB AUDIO SYNTHESIZER
 export class SoundEngine {
   constructor() {
@@ -12,11 +11,11 @@ export class SoundEngine {
     this.sfxVolume = 0.8;
     this.musicVolume = 0.6;
 
-    // NEW: Background music playlist
+    // Background music playlist — actual filenames
     this.backgroundSongs = [
-      'audio/space-theme-1.mp3',
-      'audio/space-theme-2.mp3',
-      'audio/space-theme-3.mp3'
+      'audio/Hinkik - Explorers.mp3',
+      'audio/700355_Skystrike.mp3',
+      'audio/1266014_Tidal-WaveShiawase-VIP-rmx.mp3'
     ];
 
     this.currentSongIndex = 0;
@@ -63,7 +62,6 @@ export class SoundEngine {
       );
     }
 
-    // NEW: Also mute background music
     if (this.backgroundAudio) {
       this.backgroundAudio.muted = this.isMuted;
     }
@@ -79,16 +77,10 @@ export class SoundEngine {
   }
 
   setMusicVolume(val) {
-  this.musicVolume = val;
-  if (this.musicGain && this.ctx) {
-    this.musicGain.gain.setValueAtTime(val, this.ctx.currentTime);
-  }
-  if (this.bgMusic) {
-    this.bgMusic.volume = Math.max(0, Math.min(1, val));
-  }
-}
-
-    // NEW: Also control playlist volume
+    this.musicVolume = val;
+    if (this.musicGain && this.ctx) {
+      this.musicGain.gain.setValueAtTime(val, this.ctx.currentTime);
+    }
     if (this.backgroundAudio) {
       this.backgroundAudio.volume = Math.max(0, Math.min(1, val));
     }
@@ -318,85 +310,59 @@ export class SoundEngine {
     osc.stop(t + 0.07);
   }
 
-  // --- AMBIENT SPACE DRONE / SYNTH BACKGROUND ---
+  // --- BACKGROUND MUSIC PLAYLIST ---
+  // Called automatically by init() — starts playlist from first track
   startAmbientDrone() {
-  if (this.ambientPlaying) return;
-  this.ambientPlaying = true;
-
-  // Real background music
-  this.bgMusic = new Audio('/audio/ambient_space.mp3');
-  this.bgMusic.loop = true;
-  this.bgMusic.volume = this.musicVolume;
-
-  const tryPlay = () => {
-    this.bgMusic.play().catch(() => {
-      // Autoplay blocked — wait for first user interaction
-      const unlock = () => {
-        this.bgMusic.play().catch(() => {});
-        document.removeEventListener('click', unlock);
-        document.removeEventListener('keydown', unlock);
-      };
-      document.addEventListener('click', unlock);
-      document.addEventListener('keydown', unlock);
-    });
-  };
-
-  tryPlay();
-
-  // Keep the Web Audio context alive for SFX
-  if (!this.ctx) return;
-}
-  // ==========================================
-  // NEW: BACKGROUND MUSIC PLAYLIST
-  // ==========================================
+    if (this.ambientPlaying) return;
+    this.ambientPlaying = true;
+    this.playBackgroundMusic();
+  }
 
   playBackgroundMusic() {
-    if (!this.backgroundSongs.length) {
-      console.warn('No background songs configured.');
-      return;
-    }
+    if (!this.backgroundSongs.length) return;
 
+    // Create the Audio element once
     if (!this.backgroundAudio) {
       this.backgroundAudio = new Audio();
-
-      this.backgroundAudio.volume = Math.max(
-        0,
-        Math.min(1, this.musicVolume)
-      );
-
+      this.backgroundAudio.volume = Math.max(0, Math.min(1, this.musicVolume));
       this.backgroundAudio.muted = this.isMuted;
 
+      // Auto-advance to next track when one ends
       this.backgroundAudio.addEventListener('ended', () => {
         this.nextBackgroundSong();
       });
     }
 
-    this.backgroundAudio.src =
-      this.backgroundSongs[this.currentSongIndex];
-
+    this.backgroundAudio.src = this.backgroundSongs[this.currentSongIndex];
     this.backgroundAudio.loop = false;
 
-    this.backgroundAudio.play().catch(error => {
-      console.warn('Background music playback failed:', error);
-    });
+    const attempt = this.backgroundAudio.play();
+    if (attempt !== undefined) {
+      attempt.catch(() => {
+        // Autoplay blocked — unlock on first user interaction
+        const unlock = () => {
+          this.backgroundAudio.play().catch(() => {});
+          document.removeEventListener('click', unlock);
+          document.removeEventListener('keydown', unlock);
+          document.removeEventListener('pointerdown', unlock);
+        };
+        document.addEventListener('click', unlock);
+        document.addEventListener('keydown', unlock);
+        document.addEventListener('pointerdown', unlock);
+      });
+    }
   }
 
   nextBackgroundSong() {
     if (!this.backgroundSongs.length) return;
-
-    this.currentSongIndex =
-      (this.currentSongIndex + 1) % this.backgroundSongs.length;
-
+    this.currentSongIndex = (this.currentSongIndex + 1) % this.backgroundSongs.length;
     this.playBackgroundMusic();
   }
 
   previousBackgroundSong() {
     if (!this.backgroundSongs.length) return;
-
     this.currentSongIndex =
-      (this.currentSongIndex - 1 + this.backgroundSongs.length) %
-      this.backgroundSongs.length;
-
+      (this.currentSongIndex - 1 + this.backgroundSongs.length) % this.backgroundSongs.length;
     this.playBackgroundMusic();
   }
 
@@ -408,9 +374,7 @@ export class SoundEngine {
 
   resumeBackgroundMusic() {
     if (this.backgroundAudio) {
-      this.backgroundAudio.play().catch(error => {
-        console.warn('Music resume failed:', error);
-      });
+      this.backgroundAudio.play().catch(() => {});
     }
   }
 
