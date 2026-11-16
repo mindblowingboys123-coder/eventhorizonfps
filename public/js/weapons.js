@@ -77,8 +77,8 @@ export const WEAPON_DEFS = {
     description: 'One clean shot through the horizon. Two shots per magazine.'
   },
   horizen: {
-    id: 'horizen', name: "HORIZEN'S FINAL", damage: 99999, fireRate: 2.5, magSize: 1, reserveAmmo: 5,
-    reloadTime: 3, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 0, redeemOnly: true,
+    id: 'horizen', name: "HORIZEN'S FINAL", damage: 99999999999999999, fireRate: 10, magSize: 1, reserveAmmo: 5,
+    reloadTime: 0.1, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 0, redeemOnly: true,
     tag: 'THE ONLY WEAPON IN THE MULTIVERSE THAT CAN KILL ANYTHING IN ONE SHOT.',
     description: 'Forged at the edge of the event horizon. Redeem-only legendary.'
   }
