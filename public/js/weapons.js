@@ -55,6 +55,32 @@ export const WEAPON_DEFS = {
     tracerColor: 0x00ff88,
     recoilAmount: 0.03,
     description: 'Lightweight sidearm utilizing cold-plasma batteries. Never depletes reserve energy.'
+  },
+  minigun: {
+    id: 'minigun', name: 'Storm Minigun', damage: 14, fireRate: 0.06, magSize: 100, reserveAmmo: 400,
+    reloadTime: 3.2, bulletSpeed: 150, tracerColor: 0xffe066, recoilAmount: 0.025, len: 0.7, price: 1200,
+    description: 'Spins up a hailstorm of plasma. Eats ammo, shreds everything.'
+  },
+  mortar: {
+    id: 'mortar', name: 'Gravity Mortar', damage: 55, pelletCount: 3, spread: 0.03, fireRate: 1.3, magSize: 4,
+    reserveAmmo: 24, reloadTime: 2.6, bulletSpeed: 90, tracerColor: 0x66ff99, recoilAmount: 0.2, len: 0.6, price: 1500,
+    description: 'Fires three gravity-bound slugs at once. Slow, heavy, devastating.'
+  },
+  ghost: {
+    id: 'ghost', name: 'Ghost SMG', damage: 9, fireRate: 0.05, magSize: 40, reserveAmmo: 200,
+    reloadTime: 1.3, bulletSpeed: 170, tracerColor: 0xd8f3ff, recoilAmount: 0.02, len: 0.4, price: 900,
+    description: 'Quiet, fast, and very accurate at close range.'
+  },
+  eventlance: {
+    id: 'eventlance', name: 'Event Lance', damage: 150, fireRate: 1.6, magSize: 2, reserveAmmo: 16,
+    reloadTime: 2.4, bulletSpeed: 400, tracerColor: 0xff4fd8, recoilAmount: 0.22, len: 0.9, price: 2500,
+    description: 'One clean shot through the horizon. Two shots per magazine.'
+  },
+  horizen: {
+    id: 'horizen', name: "HORIZEN'S FINAL", damage: 99999, fireRate: 2.5, magSize: 1, reserveAmmo: 5,
+    reloadTime: 3, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 0, redeemOnly: true,
+    tag: 'THE ONLY WEAPON IN THE MULTIVERSE THAT CAN KILL ANYTHING IN ONE SHOT.',
+    description: 'Forged at the edge of the event horizon. Redeem-only legendary.'
   }
 };
 
@@ -198,6 +224,24 @@ export class WeaponManager {
     this.weaponMeshes['blaster'] = blasterGroup;
     this.viewmodelRoot.add(blasterGroup);
 
+    // Generic viewmodels for the newer weapons
+    for (const key in WEAPON_DEFS) {
+      if (this.weaponMeshes[key]) continue;
+      const def = WEAPON_DEFS[key];
+      const g = new THREE.Group();
+      const len = def.len || 0.5;
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, len), darkMat));
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.02, len * 0.7), new THREE.MeshBasicMaterial({ color: def.tracerColor }));
+      glow.position.set(0, 0.07, -len * 0.1);
+      g.add(glow);
+      const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.04, 10), new THREE.MeshBasicMaterial({ color: def.tracerColor }));
+      tip.rotateX(Math.PI / 2);
+      tip.position.set(0, 0.02, -len / 2 - 0.02);
+      g.add(tip);
+      this.weaponMeshes[key] = g;
+      this.viewmodelRoot.add(g);
+    }
+
     // Hide all initially
     for (const key in this.weaponMeshes) {
       this.weaponMeshes[key].visible = false;
@@ -240,7 +284,7 @@ export class WeaponManager {
     return (
       !this.isReloading &&
       w.currentMag > 0 &&
-      curTime - this.lastShotTime >= w.fireRate
+      curTime - this.lastShotTime >= w.fireRate / (this.fireMultiplier || 1)
     );
   }
 
@@ -275,7 +319,7 @@ export class WeaponManager {
     const tracerColor = customTracerColor || w.tracerColor;
     const shotsFired = [];
 
-    if (w.id === 'shotgun') {
+    if (w.pelletCount && w.pelletCount > 1) {
       for (let i = 0; i < w.pelletCount; i++) {
         const spreadDir = direction.clone();
         spreadDir.x += (Math.random() - 0.5) * w.spread;

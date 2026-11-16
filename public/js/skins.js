@@ -85,6 +85,36 @@ export const SKIN_DEFINITIONS = {
       core: 0xf59e0b
     },
     description: 'Honorary high-command battleframe embellished with pure solar gold.'
+  },
+  arctic_ghost: {
+    id: 'arctic_ghost', name: 'Arctic Ghost', rarity: 'rare', cost: 500, unlocked: false,
+    colors: { armor: 0xe8f7ff, secondary: 0x7fd8ff, visor: 0x00ffff, core: 0xbff5ff },
+    description: 'Frost-white plating that blends into the Cryo Moon glacier.'
+  },
+  toxic_hazmat: {
+    id: 'toxic_hazmat', name: 'Toxic Hazmat', rarity: 'rare', cost: 600, unlocked: false,
+    colors: { armor: 0x2f3d1c, secondary: 0x6bd13a, visor: 0xc6ff00, core: 0x9dff3a },
+    description: 'Sealed suit built for spore-thick jungle air.'
+  },
+  neon_samurai: {
+    id: 'neon_samurai', name: 'Neon Samurai', rarity: 'epic', cost: 1000, unlocked: false,
+    colors: { armor: 0x0b0f1f, secondary: 0xff2d6f, visor: 0xff2d6f, core: 0xffd1e0 },
+    description: 'Blade-sharp black armor with pink neon veins.'
+  },
+  chrome_titan: {
+    id: 'chrome_titan', name: 'Chrome Titan', rarity: 'epic', cost: 1300, unlocked: false,
+    colors: { armor: 0xc0c8d4, secondary: 0x5a6470, visor: 0x00e0ff, core: 0xffffff },
+    description: 'Polished heavy frame that reflects every laser.'
+  },
+  blood_moon: {
+    id: 'blood_moon', name: 'Blood Moon', rarity: 'legendary', cost: 2000, unlocked: false,
+    colors: { armor: 0x3a0a14, secondary: 0xb3122e, visor: 0xff8a8a, core: 0xff3b3b },
+    description: 'Crimson war-plate forged under an eclipsed sky.'
+  },
+  galaxy_nomad: {
+    id: 'galaxy_nomad', name: 'Galaxy Nomad', rarity: 'mythic', cost: 4000, unlocked: false,
+    colors: { armor: 0x14113a, secondary: 0x3c2a8a, visor: 0xffe066, core: 0xb070ff },
+    description: 'Star-dusted suit for pilots who have been past the horizon.'
   }
 };
 
