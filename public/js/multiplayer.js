@@ -3,7 +3,7 @@ import * as THREE from 'three';
 
 // YOUR RENDER SERVER ADDRESS (no https://, starts with wss://)
 // Example: 'wss://event-horizon.onrender.com'
-const SERVER_URL = 'wss://YOUR-APP.onrender.com';
+const SERVER_URL = 'wss://eventhorizenfps.onrender.com';
 
 export class MultiplayerClient {
   constructor(scene, skinManager, weaponManager, soundEngine) {
