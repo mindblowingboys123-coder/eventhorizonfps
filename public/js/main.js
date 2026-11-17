@@ -85,6 +85,7 @@ class EventHorizonGame {
     this.enemies = new EnemyManager(this.scene, this.sound);
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
+    this.multiplayer.isInvincible = () => !!(this.auth && this.auth.profile && this.auth.profile.godMode);
 
     // Load initial menu backdrop map (The Singularity Core)
     const mapData = this.maps.loadMap('singularity');
@@ -383,7 +384,15 @@ class EventHorizonGame {
     });
 
     window.addEventListener('self_damaged', (e) => {
-      this.takeDamage(15);
+      // The multiplayer client applies the damage; show the new health and shield here
+      this.health = e.detail.health;
+      this.shield = e.detail.shield;
+      this.lastDamageTime = performance.now();
+      if (e.detail.damage > 0) {
+        this.ui.triggerDamageFlash();
+        this.sound.playPlayerHurt();
+      }
+      this.ui.updateVitals(this.health, this.maxHealth, this.shield, this.maxShield);
     });
 
     window.addEventListener('self_killed', (e) => {
@@ -604,13 +613,7 @@ class EventHorizonGame {
   }
 
   fetchServerList() {
-  fetch('https://eventhorizonfps.onrender.com/api/rooms')
-    .then(res => {
-      if (!res.ok) {
-        throw new Error(`Server list request failed: ${res.status}`);
-      }
-      return res.json();
-    })
+  this.multiplayer.fetchRoomList()
     .then(rooms => {
       const countSpans = document.querySelectorAll('.srv-count');
       rooms.forEach((r, i) => {
@@ -863,6 +866,7 @@ class EventHorizonGame {
         }
       } else if (this.gameState === 'MULTIPLAYER') {
         this.multiplayer.update(delta);
+        this.multiplayer.setVitals(this.health, this.shield);
         this.multiplayer.sendMove(
           this.camera.position,
           this.controls.pitch,
