@@ -366,6 +366,14 @@ class EventHorizonGame {
     });
 
     // Event listeners from multiplayer & story
+    // When the server confirms our join, move us to our spawn point
+    window.addEventListener('multiplayer_joined', (e) => {
+      const sp = e.detail && e.detail.spawn;
+      if (sp && this.gameState === 'MULTIPLAYER') {
+        this.controls.setPosition(sp.x, sp.y + 2, sp.z);
+      }
+    });
+
     window.addEventListener('kill_feed_event', (e) => {
       this.ui.addKillFeed(e.detail.killerName, e.detail.victimName, e.detail.weapon);
     });
