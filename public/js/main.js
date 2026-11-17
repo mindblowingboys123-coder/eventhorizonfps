@@ -615,9 +615,16 @@ class EventHorizonGame {
       console.error('Could not load multiplayer server list:', error);
     });
 }
+  // Switch to the weapon the player equipped in the Armory
+  equipChosenWeapon() {
+    const id = this.auth.profile.equippedWeapon;
+    if (id && this.weapons.weapons[id]) this.weapons.switchWeapon(id);
+  }
+
   startStoryMode(missionId = 1) {
     this.gameState = 'STORY';
     this.resetVitals();
+    this.equipChosenWeapon();
     const mapData = this.story.startMission(missionId);
     this.controls.setColliders(mapData.colliders);
 
@@ -634,6 +641,7 @@ class EventHorizonGame {
   startMultiplayerMode(roomId = 'world-hub') {
     this.gameState = 'MULTIPLAYER';
     this.resetVitals();
+    this.equipChosenWeapon();
 
     let mapId = 'singularity';
     if (roomId === 'aegis-station') mapId = 'station';
