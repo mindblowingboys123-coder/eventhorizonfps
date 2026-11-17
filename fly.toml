@@ -1,4 +1,4 @@
-app = "eventhorizon-fps-mp"
+app = "eventhorizonfps"
 primary_region = "lax"
 
 [http_service]
