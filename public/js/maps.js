@@ -7,7 +7,6 @@ export class MapManager {
     this.currentMapGroup = null;
     this.colliders = [];
     this.animatedObjects = [];
-    this.jumpPads = [];
     this.currentMapId = 'singularity';
   }
 
@@ -18,11 +17,10 @@ export class MapManager {
       this.currentMapGroup = null;
     }
     this.colliders = [];
-    this.jumpPads = [];
     this.animatedObjects = [];
     this.currentMapId = mapId;
-    this.scene.fog = null;
-    this.scene.background = null;
+    this.centerBroken = false;
+    this.crackGroup = null;
 
     const mapGroup = new THREE.Group();
     let spawnPoints = [];
@@ -37,17 +35,11 @@ export class MapManager {
       case 'cyber':
         spawnPoints = this.buildCyberVoid(mapGroup);
         break;
-      case 'ice':
-        spawnPoints = this.buildCryoMoon(mapGroup);
-        break;
       case 'singularity':
       default:
         spawnPoints = this.buildSingularityCore(mapGroup);
         break;
     }
-
-    // Hand jump pads to the controls through the colliders array
-    this.colliders.jumpPads = this.jumpPads;
 
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
@@ -127,6 +119,8 @@ export class MapManager {
 
     // Center Main Platform
     this.createPlatform(group, 0, 0, 0, 36, 3, 36, platformMat, metalTrimMat);
+    this.centerFloorCollider = this.colliders[this.colliders.length - 1];
+    this.centerFloorParts = group.children.slice(-2);
 
     // Energy Pillars on center platform
     this.createEnergyPillar(group, 14, 1.5, 14, 0x00f0ff);
@@ -137,8 +131,8 @@ export class MapManager {
     // 4 Satellite Outer Platforms
     this.createPlatform(group, 45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
     this.createPlatform(group, -45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 7, 45, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 7, -45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 8, 45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 8, -45, 22, 2.5, 22, platformMat, metalTrimMat);
 
     // Glowing Holographic Bridges connecting center to outer platforms
     this.createBridge(group, 27, 2.5, 0, 18, 0.2, 6, energyBridgeMat);
@@ -351,120 +345,81 @@ export class MapManager {
   }
 
   // ========================================================
-  // 5. CRYO MOON (FROZEN GLACIER FIELD)
+  // SINGULARITY COLLAPSE (admin event): break and repair the centre floor
   // ========================================================
-  buildCryoMoon(group) {
-    this.scene.background = new THREE.Color(0x0a1a30);
-    this.scene.fog = new THREE.FogExp2(0x9fd8ff, 0.006);
-    this.addStarfield(group, 1800, 0xd8f3ff);
+  breakCenterFloor() {
+    if (this.centerBroken || this.currentMapId !== 'singularity' || !this.centerFloorCollider) return;
 
-    const snowMat = new THREE.MeshStandardMaterial({ color: 0xeaf6ff, roughness: 0.85 });
-    const iceMat = new THREE.MeshStandardMaterial({ color: 0x9fdcff, roughness: 0.15, metalness: 0.3 });
-    const glowMat = new THREE.MeshBasicMaterial({ color: 0x66e0ff });
-    const hullMat = new THREE.MeshStandardMaterial({ color: 0x7c8ea6, roughness: 0.4, metalness: 0.6 });
+    // Remove the floor's collider so players fall through, and hide the slab
+    const idx = this.colliders.indexOf(this.centerFloorCollider);
+    if (idx !== -1) this.colliders.splice(idx, 1);
+    this.centerFloorParts.forEach((p) => { p.visible = false; });
 
-    // Frozen lake (main floor, top surface at y = 1)
-    this.createPlatform(group, 0, 0, 0, 130, 2, 130, snowMat, glowMat);
-
-    // Research outpost in the middle (roof top at y = 9, reach it with a jump pad)
-    this.createWall(group, 0, 5, 0, 16, 8, 16, hullMat);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(16.4, 0.3, 16.4), glowMat);
-    band.position.set(0, 8.6, 0);
-    group.add(band);
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 9, 8), hullMat);
-    mast.position.set(0, 13.5, 0);
-    group.add(mast);
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 12), glowMat);
-    beacon.position.set(0, 18.4, 0);
-    group.add(beacon);
-    this.animatedObjects.push({ update: () => { beacon.scale.setScalar(1 + Math.sin(performance.now() / 300) * 0.25); } });
-
-    // Climbable ice shelves
-    this.createPlatform(group, -22, 3, 0, 12, 2, 12, iceMat, glowMat);    // top y = 4
-    this.createPlatform(group, -22, 6, 14, 10, 2, 10, iceMat, glowMat);   // top y = 7
-    this.createPlatform(group, 24, 3, -10, 12, 2, 12, iceMat, glowMat);   // top y = 4
-    this.createPlatform(group, 24, 6.5, -24, 10, 2, 10, iceMat, glowMat); // top y = 7.5
-
-    // Ice pillars for cover (fixed positions so every player sees the same map)
-    const pillars = [[40, 30], [-40, 30], [-38, -34], [36, 36], [14, -38], [-14, 40], [48, -4], [-50, 6], [0, -52], [8, 50]];
-    pillars.forEach(([x, z], i) => {
-      const h = 5 + (i % 4) * 2;
-      const pillar = new THREE.Mesh(new THREE.BoxGeometry(3.2, h, 3.2), iceMat);
-      pillar.position.set(x, 1 + h / 2, z);
-      group.add(pillar);
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.3, 3.4), glowMat);
-      cap.position.set(x, 1 + h - 0.3, z);
-      group.add(cap);
-      this.addBoxCollider(x, 1 + h / 2, z, 3.2, h, 3.2);
-    });
-
-    // Jump pads next to the outpost (launch onto the roof)
-    this.createJumpPad(group, 0, 1.15, 14, 0x66e0ff);
-    this.createJumpPad(group, 0, 1.15, -14, 0x66e0ff);
-
-    // Falling snow
-    const flakeCount = 1400;
-    const flakePos = new Float32Array(flakeCount * 3);
-    for (let i = 0; i < flakeCount; i++) {
-      flakePos[i * 3] = (Math.random() - 0.5) * 140;
-      flakePos[i * 3 + 1] = Math.random() * 45;
-      flakePos[i * 3 + 2] = (Math.random() - 0.5) * 140;
+    // Cracked debris and glowing fissures where the floor used to be
+    const crackGroup = new THREE.Group();
+    const shardMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9, metalness: 0.3 });
+    const crackMat = new THREE.MeshBasicMaterial({ color: 0xff3355 });
+    for (let i = 0; i < 12; i++) {
+      const shard = new THREE.Mesh(new THREE.BoxGeometry(3 + Math.random() * 4, 0.4, 3 + Math.random() * 4), shardMat);
+      const a = Math.random() * Math.PI * 2;
+      const r = 4 + Math.random() * 12;
+      shard.position.set(Math.cos(a) * r, 1.2 + Math.random() * 0.6, Math.sin(a) * r);
+      shard.rotation.set((Math.random() - 0.5) * 0.7, Math.random() * Math.PI, (Math.random() - 0.5) * 0.7);
+      crackGroup.add(shard);
     }
-    const flakeGeo = new THREE.BufferGeometry();
-    flakeGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
-    const snow = new THREE.Points(flakeGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0.85 }));
-    snow.frustumCulled = false;
-    group.add(snow);
-    this.animatedObjects.push({
-      update: (delta) => {
-        const arr = flakeGeo.attributes.position.array;
-        const t = performance.now() / 1500;
-        for (let i = 0; i < flakeCount; i++) {
-          arr[i * 3 + 1] -= delta * 4;
-          arr[i * 3] += Math.sin(i + t) * delta * 0.6;
-          if (arr[i * 3 + 1] < 1) arr[i * 3 + 1] = 45;
+    for (let i = 0; i < 9; i++) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 26), crackMat);
+      line.position.set((Math.random() - 0.5) * 26, 1.53, (Math.random() - 0.5) * 10);
+      line.rotation.y = Math.random() * Math.PI;
+      crackGroup.add(line);
+    }
+    this.currentMapGroup.add(crackGroup);
+    this.crackGroup = crackGroup;
+    this.centerBroken = true;
+  }
+
+  repairCenterFloor() {
+    if (!this.centerBroken) return;
+    if (this.centerFloorCollider && !this.colliders.includes(this.centerFloorCollider)) {
+      this.colliders.push(this.centerFloorCollider);
+    }
+    this.centerFloorParts.forEach((p) => { p.visible = true; });
+    if (this.crackGroup) {
+      this.currentMapGroup.remove(this.crackGroup);
+      this.crackGroup.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+      this.crackGroup = null;
+    }
+    this.centerBroken = false;
+  }
+
+  // Expanding fireball from the black hole
+  playBlast() {
+    if (!this.currentMapGroup) return;
+    const geo = new THREE.SphereGeometry(1, 24, 24);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.9 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, -60, 0);
+    this.currentMapGroup.add(mesh);
+    const group = this.currentMapGroup;
+    let t = 0;
+    const obj = {
+      update: (dt) => {
+        t += dt;
+        const k = Math.min(1, t / 1.6);
+        mesh.scale.setScalar(1 + k * 130);
+        mat.opacity = 0.9 * (1 - k);
+        if (k >= 1) {
+          group.remove(mesh);
+          geo.dispose();
+          mat.dispose();
+          obj.done = true;
         }
-        flakeGeo.attributes.position.needsUpdate = true;
       }
-    });
-
-    // Aurora ribbons in the sky
-    const ribbons = [0x5dffb0, 0x66e0ff, 0xb57bff].map((col, i) => {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(260, 34),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
-      );
-      m.position.set(0, 70 + i * 8, -110 - i * 18);
-      m.rotation.x = -0.15;
-      group.add(m);
-      return m;
-    });
-    let auroraT = 0;
-    this.animatedObjects.push({
-      update: (delta) => {
-        auroraT += delta;
-        ribbons.forEach((m, i) => {
-          m.position.x = Math.sin(auroraT * 0.12 + i * 2) * 30;
-          m.material.opacity = 0.16 + Math.sin(auroraT * 0.6 + i) * 0.07;
-        });
-      }
-    });
-
-    // Cold bright lighting
-    const hemi = new THREE.HemisphereLight(0xdff4ff, 0x6b8cae, 2.6);
-    const amb = new THREE.AmbientLight(0xffffff, 2.0);
-    const sunL = new THREE.DirectionalLight(0xcfe9ff, 3.2);
-    sunL.position.set(30, 60, 20);
-    const glowL = new THREE.PointLight(0x66e0ff, 3.5, 60);
-    glowL.position.set(0, 12, 0);
-    group.add(hemi, amb, sunL, glowL);
-
-    return [
-      new THREE.Vector3(0, 2.5, 28),
-      new THREE.Vector3(28, 2.5, 0),
-      new THREE.Vector3(-28, 2.5, 10),
-      new THREE.Vector3(0, 2.5, -30)
-    ];
+    };
+    this.animatedObjects.push(obj);
   }
 
   // Helper creation methods
@@ -475,7 +430,7 @@ export class MapManager {
 
     if (trimMat) {
       const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.4, d + 0.2), trimMat);
-      trim.position.set(x, y + h / 2 - 0.3, z);
+      trim.position.set(x, y + h / 2 - 0.2, z);
       parent.add(trim);
     }
 
@@ -533,7 +488,6 @@ export class MapManager {
     const pad = new THREE.Mesh(padGeo, padMat);
     pad.position.set(x, y, z);
     parent.add(pad);
-    this.jumpPads.push({ x, y, z, r: 1.9 });
   }
 
   addBoxCollider(x, y, z, w, h, d) {
@@ -565,5 +519,6 @@ export class MapManager {
     for (let i = 0; i < this.animatedObjects.length; i++) {
       this.animatedObjects[i].update(delta);
     }
+    this.animatedObjects = this.animatedObjects.filter((o) => !o.done);
   }
 }
