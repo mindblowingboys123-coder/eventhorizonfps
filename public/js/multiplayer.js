@@ -1,6 +1,7 @@
-// EVENT HORIZON - MULTIPLAYER WORLD CLIENT (Firebase Realtime Database)
-// Pilots share one world through the Firebase Realtime Database instead of a game server.
-// Same public API and event names as the old WebSocket client, so main.js keeps working.
+// EVENT HORIZON - MULTIPLAYER WORLD CLIENT (Firebase Realtime Database, compat SDK)
+// Pilots share one world through the Realtime Database instead of a game server.
+// Uses the same Firebase connection as auth.js (window.firebase), so no extra setup
+// besides databaseURL in firebase-config.js. Same public API and event names as before.
 import * as THREE from 'three';
 
 const ROOMS = {
@@ -35,19 +36,15 @@ const FEED_TTL_MS = 10000;      // chat and kill messages older than this are ig
 const HIT_MAX_AGE_MS = 5000;    // hits older than this are stale
 const COMMAND_MAX_AGE_MS = 15000;
 const MAX_DAMAGE = 100000;      // high enough that HORIZEN'S FINAL (99999) still kills in one shot
+const SDK_VERSION = '10.8.0';   // same version auth.js loads
 
 function num(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
-function round2(v) {
-  return Math.round(num(v) * 100) / 100;
-}
-
-function round3(v) {
-  return Math.round(num(v) * 1000) / 1000;
-}
+function round2(v) { return Math.round(num(v) * 100) / 100; }
+function round3(v) { return Math.round(num(v) * 1000) / 1000; }
 
 // Removes undefined values, which the database rejects
 function clean(obj) {
@@ -64,10 +61,49 @@ function randomSpawn(map) {
   };
 }
 
-// Firebase handles set up by index.html: { A: auth module, D: database module, auth, db }
-function fb() {
-  if (!window.__eh) throw new Error('Firebase is not set up yet. Multiplayer needs Firebase (see README).');
-  return window.__eh;
+// Waits until auth.js has initialised Firebase, then makes sure the database library is loaded
+function loadDatabaseSDK() {
+  return new Promise((resolve, reject) => {
+    if (window.firebase && window.firebase.database) return resolve();
+    const s = document.createElement('script');
+    s.src = `https://www.gstatic.com/firebasejs/${SDK_VERSION}/firebase-database-compat.js`;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load the Firebase database library.'));
+    document.head.appendChild(s);
+  });
+}
+
+async function getDatabase() {
+  const started = Date.now();
+  while (!(window.firebase && window.firebase.apps && window.firebase.apps.length)) {
+    if (Date.now() - started > 15000) {
+      throw new Error('Firebase is not set up. Check js/firebase-config.js.');
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  await loadDatabaseSDK();
+
+  const options = window.firebase.app().options || {};
+  if (!options.databaseURL) {
+    throw new Error('Add databaseURL to FIREBASE_CONFIG in js/firebase-config.js (copy it from the Realtime Database page).');
+  }
+  return window.firebase.database();
+}
+
+// Resolves with the signed-in user (guest accounts count), or null when nobody is signed in
+function waitForUser() {
+  return new Promise((resolve) => {
+    const auth = window.firebase.auth();
+    let done = false;
+    let unsub = null;
+    unsub = auth.onAuthStateChanged((user) => {
+      if (done) return;
+      done = true;
+      resolve(user);
+      if (unsub) unsub();
+    });
+  });
 }
 
 export class MultiplayerClient {
@@ -77,6 +113,7 @@ export class MultiplayerClient {
     this.weapons = weaponManager;
     this.sound = soundEngine;
 
+    this.db = null;
     this.selfId = null;
     this.currentRoom = null;
     this.otherPlayers = {};
@@ -90,9 +127,8 @@ export class MultiplayerClient {
     this.stats = { kills: 0, deaths: 0 };
     this.lastMap = null;
     this.serverOffset = 0;
-    this.clockUnsub = null;
-    this.disconnectHandler = null;
-    this.unsubs = [];
+    this.clockStarted = false;
+    this.listenerCleanups = [];
     this.lastSendMoveTime = 0;
 
     // main.js replaces this with a God Mode check
@@ -101,8 +137,18 @@ export class MultiplayerClient {
 
   // ---------- helpers ----------
 
-  roomPath(sub) {
-    return `rooms/${this.currentRoom}/${sub}`;
+  async ready() {
+    if (!this.db) this.db = await getDatabase();
+    return this.db;
+  }
+
+  roomRef(sub) {
+    return this.db.ref(`rooms/${this.currentRoom}/${sub}`);
+  }
+
+  listen(ref, event, cb) {
+    ref.on(event, cb);
+    this.listenerCleanups.push(() => ref.off(event, cb));
   }
 
   now() {
@@ -110,50 +156,33 @@ export class MultiplayerClient {
   }
 
   startClock() {
-    if (this.clockUnsub) return;
-    const { D, db } = fb();
+    if (this.clockStarted) return;
+    this.clockStarted = true;
     // Firebase keeps this value up to date with the difference between our clock and the server's
-    this.clockUnsub = D.onValue(D.ref(db, '.info/serverTimeOffset'), (snap) => {
+    this.db.ref('.info/serverTimeOffset').on('value', (snap) => {
       this.serverOffset = num(snap.val(), 0);
     });
   }
 
-  // Resolves with the signed-in user (guest accounts count), or null when nobody is signed in
-  waitForUser() {
-    const { A, auth } = fb();
-    return new Promise((resolve) => {
-      let done = false;
-      let unsub = null;
-      unsub = A.onAuthStateChanged(auth, (user) => {
-        if (done) return;
-        done = true;
-        resolve(user);
-        if (unsub) unsub();
-      });
-    });
-  }
-
   async requireUser() {
-    const user = await this.waitForUser();
+    await this.ready();
+    const user = await waitForUser();
     if (!user) throw new Error('Sign in or play as guest to use multiplayer.');
     return user;
   }
 
   writeMine(fields) {
     if (!this.myRef) return;
-    const { D } = fb();
-    D.update(this.myRef, clean(fields)).catch((e) => console.warn('Could not update your pilot:', e));
+    this.myRef.update(clean(fields)).catch((e) => console.warn('Could not update your pilot:', e));
   }
 
   postFeed(room, item) {
-    const { D, db } = fb();
-    const r = D.push(D.ref(db, `rooms/${room}/feed`), clean({ ...item, t: this.now() }));
-    setTimeout(() => { D.remove(r).catch(() => {}); }, FEED_TTL_MS);
+    const ref = this.db.ref(`rooms/${room}/feed`).push(clean({ ...item, t: this.now() }));
+    setTimeout(() => { ref.remove().catch(() => {}); }, FEED_TTL_MS);
   }
 
   async currentMapId(room) {
-    const { D, db } = fb();
-    const snap = await D.get(D.ref(db, `rooms/${room}/meta/map`));
+    const snap = await this.db.ref(`rooms/${room}/meta/map`).once('value');
     return snap.exists() ? snap.val() : ROOMS[room].map;
   }
 
@@ -181,14 +210,12 @@ export class MultiplayerClient {
     this.stats = { kills: 0, deaths: 0 };
 
     const spawn = randomSpawn(await this.currentMapId(room));
-    const { D, db } = fb();
-    this.myRef = D.ref(db, `rooms/${room}/players/${user.uid}`);
+    this.myRef = this.db.ref(`rooms/${room}/players/${user.uid}`);
 
     // If this browser closes or drops off the internet, Firebase removes this pilot automatically
-    this.disconnectHandler = D.onDisconnect(this.myRef);
-    this.disconnectHandler.remove();
+    this.myRef.onDisconnect().remove();
 
-    await D.set(this.myRef, clean({
+    await this.myRef.set(clean({
       id: user.uid,
       name: this.myName,
       skin: skinId || 'vanguard',
@@ -211,27 +238,24 @@ export class MultiplayerClient {
     }));
   }
 
-  // Signs in as admin-capable client without joining a room (used by the admin roster)
-  connectAdminOnly() {
-    return this.requireUser().then((user) => {
-      this.startClock();
-      this.myUid = user.uid;
-      this.isConnected = true;
-    });
+  // Signs in as an admin-capable client without joining a room (used by the admin roster)
+  async connectAdminOnly() {
+    const user = await this.requireUser();
+    this.startClock();
+    this.myUid = user.uid;
+    this.isConnected = true;
   }
 
   disconnect() {
-    this.unsubs.forEach((u) => { try { u(); } catch (e) { /* already closed */ } });
-    this.unsubs = [];
+    this.listenerCleanups.forEach((off) => { try { off(); } catch (e) { /* already closed */ } });
+    this.listenerCleanups = [];
 
     if (this.joined && this.myRef) {
-      const { D } = fb();
       this.postFeed(this.currentRoom, { kind: 'chat', sender: 'SYSTEM', text: `${this.myName} disconnected from sector.`, isSystem: true });
-      if (this.disconnectHandler) this.disconnectHandler.cancel().catch(() => {});
-      D.remove(this.myRef).catch(() => {});
+      this.myRef.onDisconnect().cancel().catch(() => {});
+      this.myRef.remove().catch(() => {});
     }
 
-    this.disconnectHandler = null;
     this.myRef = null;
     this.joined = false;
     this.isConnected = false;
@@ -244,48 +268,46 @@ export class MultiplayerClient {
   // ---------- listening to the room ----------
 
   attachListeners(room, me) {
-    const { D, db } = fb();
-    const R = (sub) => D.ref(db, `rooms/${room}/${sub}`);
-    const add = (unsub) => this.unsubs.push(unsub);
+    const R = (sub) => this.db.ref(`rooms/${room}/${sub}`);
 
     // Other pilots: positions, joins, leaves
-    add(D.onChildAdded(R('players'), (snap) => {
+    this.listen(R('players'), 'child_added', (snap) => {
       if (snap.key !== me && snap.val()) this.addRemotePlayer({ id: snap.key, ...snap.val() });
-    }));
-    add(D.onChildChanged(R('players'), (snap) => {
+    });
+    this.listen(R('players'), 'child_changed', (snap) => {
       if (snap.key !== me && snap.val()) this.updateRemotePlayer(snap.key, snap.val());
-    }));
-    add(D.onChildRemoved(R('players'), (snap) => {
+    });
+    this.listen(R('players'), 'child_removed', (snap) => {
       this.removeRemotePlayer(snap.key);
-    }));
+    });
 
     // Tracers from other pilots
-    add(D.onChildAdded(D.query(R('shots'), D.limitToLast(50)), (snap) => {
+    this.listen(R('shots').limitToLast(50), 'child_added', (snap) => {
       const s = snap.val();
       if (!s || !s.o || !s.d || s.uid === me || this.now() - num(s.t) > SHOT_TTL_MS) return;
       const origin = new THREE.Vector3(s.o.x, s.o.y, s.o.z);
       const dir = new THREE.Vector3(s.d.x, s.d.y, s.d.z);
       this.weapons.spawnTracer(origin, dir, num(s.c, 0x00f0ff));
       if (this.sound) this.sound.playShoot(s.w || 'rifle');
-    }));
+    });
 
     // Damage aimed at this pilot
-    add(D.onChildAdded(R(`hits/${me}`), (snap) => {
+    this.listen(R(`hits/${me}`), 'child_added', (snap) => {
       const h = snap.val();
-      D.remove(snap.ref).catch(() => {});
+      snap.ref.remove().catch(() => {});
       if (!h || this.dead || this.now() - num(h.t) > HIT_MAX_AGE_MS) return;
       this.applyHit(h);
-    }));
+    });
 
     // Admin commands aimed at this pilot
-    add(D.onChildAdded(R(`commands/${me}`), (snap) => {
+    this.listen(R(`commands/${me}`), 'child_added', (snap) => {
       const c = snap.val();
-      D.remove(snap.ref).catch(() => {});
+      snap.ref.remove().catch(() => {});
       if (c && this.now() - num(c.t) < COMMAND_MAX_AGE_MS) this.handleCommand(c);
-    }));
+    });
 
     // Chat and kill messages
-    add(D.onChildAdded(D.query(R('feed'), D.limitToLast(30)), (snap) => {
+    this.listen(R('feed').limitToLast(30), 'child_added', (snap) => {
       const f = snap.val();
       if (!f || this.now() - num(f.t) > FEED_TTL_MS) return;
 
@@ -306,11 +328,11 @@ export class MultiplayerClient {
           }));
         }
       }
-    }));
+    });
 
     // Landscape changes made by the admin
     let primed = false;
-    add(D.onValue(R('meta/map'), (snap) => {
+    this.listen(R('meta/map'), 'value', (snap) => {
       const map = snap.val();
       if (!primed) {
         // First reading just records the current landscape; nothing changed yet
@@ -322,7 +344,7 @@ export class MultiplayerClient {
         this.lastMap = map;
         window.dispatchEvent(new CustomEvent('room_map_changed', { detail: { map } }));
       }
-    }));
+    });
   }
 
   // ---------- combat ----------
@@ -427,8 +449,7 @@ export class MultiplayerClient {
 
   sendShoot(origin, direction, weaponId, tracerColor) {
     if (!this.joined) return;
-    const { D, db } = fb();
-    const r = D.push(D.ref(db, this.roomPath('shots')), clean({
+    const ref = this.roomRef('shots').push(clean({
       uid: this.myUid,
       o: { x: round3(origin.x), y: round3(origin.y), z: round3(origin.z) },
       d: { x: round3(direction.x), y: round3(direction.y), z: round3(direction.z) },
@@ -436,13 +457,12 @@ export class MultiplayerClient {
       c: num(tracerColor, 0x00f0ff),
       t: this.now()
     }));
-    setTimeout(() => { D.remove(r).catch(() => {}); }, SHOT_TTL_MS);
+    setTimeout(() => { ref.remove().catch(() => {}); }, SHOT_TTL_MS);
   }
 
   sendHit(targetId, damage, weaponId) {
     if (!this.joined || !targetId || targetId === this.myUid) return;
-    const { D, db } = fb();
-    D.push(D.ref(db, this.roomPath(`hits/${targetId}`)), clean({
+    this.roomRef(`hits/${targetId}`).push(clean({
       dmg: num(damage, 20),
       from: this.myUid,
       fromName: this.myName,
@@ -465,12 +485,11 @@ export class MultiplayerClient {
   }
 
   sendAdminAction(action, targetId = null, extra = {}) {
-    if (!this.isConnected) return;
-    const { D, db } = fb();
+    if (!this.isConnected || !this.db) return;
     const room = this.currentRoom || 'world-hub';
 
     if (action === 'change_map') {
-      D.set(D.ref(db, `rooms/${room}/meta/map`), String(extra.map || 'singularity'))
+      this.db.ref(`rooms/${room}/meta/map`).set(String(extra.map || 'singularity'))
         .catch((e) => console.error('Admin map change refused:', e));
     } else if (action === 'broadcast') {
       this.postFeed(room, {
@@ -480,12 +499,13 @@ export class MultiplayerClient {
         isSystem: true
       });
     } else if (targetId) {
-      D.push(D.ref(db, `rooms/${room}/commands/${targetId}`), clean({
+      // Firebase logs a refused write on its own, so no catch is needed here
+      this.db.ref(`rooms/${room}/commands/${targetId}`).push(clean({
         action,
         extra,
         from: this.myUid,
         t: this.now()
-      })).catch((e) => console.error('Admin command refused:', e));
+      }));
     }
   }
 
@@ -493,8 +513,8 @@ export class MultiplayerClient {
     const room = this.currentRoom || 'world-hub';
     let list = [];
     try {
-      const { D, db } = fb();
-      const snap = await D.get(D.ref(db, `rooms/${room}/players`));
+      await this.ready();
+      const snap = await this.db.ref(`rooms/${room}/players`).once('value');
       const val = snap.val() || {};
       list = Object.keys(val).map((id) => ({ id, ...val[id] }));
     } catch (e) {
@@ -506,11 +526,10 @@ export class MultiplayerClient {
   // Used by the main menu server list. Returns [{ id, name, map, playerCount }]
   async fetchRoomList() {
     await this.requireUser();
-    const { D, db } = fb();
     return Promise.all(Object.keys(ROOMS).map(async (id) => {
       const [playersSnap, mapSnap] = await Promise.all([
-        D.get(D.ref(db, `rooms/${id}/players`)),
-        D.get(D.ref(db, `rooms/${id}/meta/map`))
+        this.db.ref(`rooms/${id}/players`).once('value'),
+        this.db.ref(`rooms/${id}/meta/map`).once('value')
       ]);
       const players = playersSnap.val() || {};
       return {
