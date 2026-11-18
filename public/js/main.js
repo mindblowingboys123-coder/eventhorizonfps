@@ -12,6 +12,9 @@ import { MultiplayerClient } from './multiplayer.js';
 import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
+const CATACLYSM_MS = 10 * 60 * 1000; // how long the centre floor stays broken
+const SAFE_SPAWN = { x: 45, y: 8, z: 0 }; // satellite platform, used while the floor is broken
+
 
 class EventHorizonGame {
   constructor() {
@@ -34,6 +37,9 @@ class EventHorizonGame {
     this.isDead = false;
     this.abilities = new AbilityManager();
     this.remoteGrants = null; // grants sent by the admin during a match
+    this.cataclysmAt = 0;
+    this.cataclysmReadyAt = 0;
+    this.lastCataclysmCheck = 0;
 
     // Raycaster for hit detection
     this.raycaster = new THREE.Raycaster();
@@ -371,6 +377,8 @@ class EventHorizonGame {
         this.useAbility('E');
       } else if (e.code === 'KeyQ') {
         this.useAbility('Q');
+      } else if (e.code === 'KeyX') {
+        this.triggerSingularityCollapse();
       }
     });
 
@@ -465,6 +473,12 @@ class EventHorizonGame {
     }
 
     this.buildSelfGrantPanel();
+    window.addEventListener('cataclysm_state', (e) => {
+      this.cataclysmAt = e.detail.at || 0;
+      this.syncCataclysm();
+    });
+    window.addEventListener('cataclysm', (e) => this.onCataclysm(e.detail));
+
     window.addEventListener('grants_updated', (e) => {
       this.remoteGrants = e.detail || null;
       this.applyGrants();
@@ -540,6 +554,51 @@ class EventHorizonGame {
     });
   }
 
+  // ---------- singularity collapse (admin) ----------
+
+  // Keeps the floor and void respawn in step with the shared collapse timer
+  syncCataclysm() {
+    const active = this.gameState === 'MULTIPLAYER'
+      && this.maps.currentMapId === 'singularity'
+      && this.cataclysmAt > 0
+      && this.multiplayer.now() - this.cataclysmAt < CATACLYSM_MS;
+    if (active) {
+      this.maps.breakCenterFloor();
+      this.controls.voidRespawn = SAFE_SPAWN;
+    } else {
+      this.maps.repairCenterFloor();
+      this.controls.voidRespawn = null;
+    }
+  }
+
+  triggerSingularityCollapse() {
+    if (!(this.auth.profile && this.auth.profile.isAdmin)) return;
+    if (this.gameState !== 'MULTIPLAYER' || this.maps.currentMapId !== 'singularity') {
+      this.ui.addChatMessage('⚡ COLLAPSE', 'Singularity Collapse only works on the Singularity Core map.', true);
+      return;
+    }
+    const left = this.cataclysmReadyAt - performance.now();
+    if (left > 0) {
+      this.ui.addChatMessage('⚡ COLLAPSE', `Recharging: ${Math.ceil(left / 1000)}s left.`, true);
+      return;
+    }
+    if (!confirm('Trigger the Singularity Collapse? Everyone on this server will be killed and the floor will break for 10 minutes.')) return;
+    if (this.multiplayer.triggerCataclysm()) {
+      this.cataclysmReadyAt = performance.now() + CATACLYSM_MS;
+    }
+  }
+
+  onCataclysm(detail) {
+    this.cataclysmAt = detail.at;
+    this.syncCataclysm();
+    if (this.gameState !== 'MULTIPLAYER' || this.maps.currentMapId !== 'singularity') return;
+    this.maps.playBlast();
+    this.ui.triggerDamageFlash();
+    this.sound.playPlayerHurt();
+    this.ui.addChatMessage('⚡ COLLAPSE', `${detail.by} triggered a singularity collapse!`, true);
+    if (!this.isDead) this.multiplayer.die(detail.byId, detail.by, 'Singularity Collapse');
+  }
+
   // ---------- grants, speed, flight and abilities ----------
 
   effectiveGrants() {
@@ -610,6 +669,14 @@ class EventHorizonGame {
     const show = this.gameState !== 'MENU';
     this.abilityHud.style.display = show ? 'flex' : 'none';
     if (!show) return;
+    const xEl = this.abilityHud.querySelector('[data-slot="X"]');
+    const isAdmin = !!(this.auth.profile && this.auth.profile.isAdmin);
+    xEl.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) {
+      const left = this.cataclysmReadyAt - performance.now();
+      xEl.textContent = left > 0 ? `X: COLLAPSE (${Math.ceil(left / 1000)}s)` : 'X: COLLAPSE READY';
+      xEl.style.opacity = left > 0 ? '0.5' : '1';
+    }
     ['E', 'Q'].forEach((slot) => {
       const id = this.abilities.slots[slot];
       const def = id ? ABILITIES[id] : null;
@@ -624,7 +691,7 @@ class EventHorizonGame {
     // Ability HUD at the bottom of the screen
     const hud = document.createElement('div');
     hud.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:none; gap:24px; z-index:50; font-family:var(--font-display); font-size:0.85rem; color:var(--primary-cyan); text-shadow:0 0 8px rgba(0,240,255,0.6); pointer-events:none;';
-    hud.innerHTML = '<span data-slot="E"></span><span data-slot="Q"></span>';
+    hud.innerHTML = '<span data-slot="E"></span><span data-slot="Q"></span><span data-slot="X"></span>';
     document.body.appendChild(hud);
     this.abilityHud = hud;
 
@@ -833,6 +900,7 @@ class EventHorizonGame {
 
     const mapData = this.maps.loadMap(mapId);
     this.controls.setColliders(mapData.colliders);
+    this.syncCataclysm();
 
     this.multiplayer.connect(
       roomId,
@@ -912,7 +980,8 @@ class EventHorizonGame {
         this.multiplayer.sendRespawn();
       }
       this.resetVitals();
-      this.controls.setPosition(0, 4, 0);
+      const sp = this.controls.voidRespawn || { x: 0, y: 4, z: 0 };
+      this.controls.setPosition(sp.x, sp.y, sp.z);
     }, 2500);
   }
 
@@ -1016,6 +1085,10 @@ class EventHorizonGame {
       const isMoving = this.controls.moveForward || this.controls.moveBackward ||
                        this.controls.moveLeft || this.controls.moveRight;
 
+      if (performance.now() - this.lastCataclysmCheck > 1000) {
+        this.lastCataclysmCheck = performance.now();
+        this.syncCataclysm();
+      }
       this.abilities.update(delta);
       this.weapons.fireMultiplier = this.abilities.fireMultiplier();
       this.updateAbilityHUD();
