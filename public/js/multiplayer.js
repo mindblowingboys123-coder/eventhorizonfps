@@ -564,7 +564,10 @@ export class MultiplayerClient {
       targetPos: new THREE.Vector3(num(data.x), num(data.y), num(data.z)),
       targetRot: num(data.rotY),
       isMoving: !!data.isMoving,
-      health
+      health,
+      kills: num(data.kills),
+      deaths: num(data.deaths),
+      score: num(data.kills) * 100
     };
   }
 
@@ -586,6 +589,8 @@ export class MultiplayerClient {
     if (d.rotY !== undefined) rp.targetRot = num(d.rotY);
     rp.isMoving = !!d.isMoving;
     if (d.health !== undefined) rp.health = num(d.health, rp.health);
+    if (d.kills !== undefined) { rp.kills = num(d.kills); rp.score = rp.kills * 100; }
+    if (d.deaths !== undefined) rp.deaths = num(d.deaths);
     if (d.name) rp.name = d.name;
     this.skins.updateNametag(rp.model, rp.name, rp.health, 100);
   }
