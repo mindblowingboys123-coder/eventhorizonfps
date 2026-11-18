@@ -883,12 +883,13 @@ class EventHorizonGame {
         }
 
         // Live Scoreboard update
+        const myKills = this.multiplayer.stats.kills;
         const playerList = [{
           name: this.auth.profile.name,
           skin: this.auth.profile.equippedSkin,
-          kills: this.auth.profile.kills,
-          deaths: this.auth.profile.deaths,
-          score: this.auth.profile.kills * 100
+          kills: myKills,
+          deaths: this.multiplayer.stats.deaths,
+          score: myKills * 100
         }, ...Object.values(this.multiplayer.otherPlayers)];
         this.ui.updateScoreboard(playerList);
       }
