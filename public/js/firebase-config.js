@@ -5,6 +5,7 @@
 export const FIREBASE_CONFIG = {
   apiKey: "AIzaSyA_SsLlZEZAlmGnJIrteHE-Muf7BTsoss0",
   authDomain: "eventhorizenfps.firebaseapp.com",
+  databaseURL: "https://eventhorizenfps-default-rtdb.firebaseio.com/",
   projectId: "eventhorizenfps",
   storageBucket: "eventhorizenfps.firebasestorage.app",
   messagingSenderId: "943408880845",
