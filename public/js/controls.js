@@ -43,6 +43,7 @@ export class FPSControls {
 
     // Admin-granted movement: speedLevel 0-3 and fly on/off (set by main.js)
     this.grants = { speedLevel: 0, fly: false };
+    this.voidRespawn = null; // where falling into the void puts you (set by main.js)
     this.flyUp = false;
 
     // Key event listeners
@@ -269,9 +270,10 @@ export class FPSControls {
     // Fall to void reset safety check
     if (allowedY < -40) {
       // Fell off into the Event Horizon!
-      allowedX = 0;
-      allowedY = 4;
-      allowedZ = 0;
+      const vr = this.voidRespawn || { x: 0, y: 4, z: 0 };
+      allowedX = vr.x;
+      allowedY = vr.y;
+      allowedZ = vr.z;
       this.velocity.set(0, 0, 0);
       window.dispatchEvent(new CustomEvent('player_fell_into_void'));
     }
