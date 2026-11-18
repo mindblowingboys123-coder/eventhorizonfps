@@ -72,7 +72,7 @@ export const WEAPON_DEFS = {
     description: 'Quiet, fast, and very accurate at close range.'
   },
   eventlance: {
-    id: 'eventlance', name: 'Event Lance', damage: 150, fireRate: 1.6, magSize: 2, reserveAmmo: 16,
+    id: 'eventlance', name: 'Event Lance', damage: 20, fireRate: 1.6, magSize: 2, reserveAmmo: 16,
     reloadTime: 2.4, bulletSpeed: 400, tracerColor: 0xff4fd8, recoilAmount: 0.22, len: 0.9, price: 2500,
     description: 'One clean shot through the horizon. Two shots per magazine.'
   },
