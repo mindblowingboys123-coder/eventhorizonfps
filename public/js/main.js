@@ -11,6 +11,7 @@ import { StoryCampaign } from './story.js';
 import { MultiplayerClient } from './multiplayer.js';
 import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
+import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
 
 class EventHorizonGame {
   constructor() {
@@ -31,6 +32,8 @@ class EventHorizonGame {
     this.maxShield = 50;
     this.lastDamageTime = 0;
     this.isDead = false;
+    this.abilities = new AbilityManager();
+    this.remoteGrants = null; // grants sent by the admin during a match
 
     // Raycaster for hit detection
     this.raycaster = new THREE.Raycaster();
@@ -86,6 +89,7 @@ class EventHorizonGame {
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
     this.multiplayer.isInvincible = () => !!(this.auth && this.auth.profile && this.auth.profile.godMode);
+    this.applyGrants();
 
     // Load initial menu backdrop map (The Singularity Core)
     const mapData = this.maps.loadMap('singularity');
@@ -363,6 +367,10 @@ class EventHorizonGame {
         this.weapons.switchWeapon('railgun');
       } else if (e.code === 'Digit4') {
         this.weapons.switchWeapon('blaster');
+      } else if (e.code === 'KeyE') {
+        this.useAbility('E');
+      } else if (e.code === 'KeyQ') {
+        this.useAbility('Q');
       }
     });
 
@@ -456,6 +464,12 @@ class EventHorizonGame {
       });
     }
 
+    this.buildSelfGrantPanel();
+    window.addEventListener('grants_updated', (e) => {
+      this.remoteGrants = e.detail || null;
+      this.applyGrants();
+    });
+
     // Admin Landscape Shift (For all players)
     document.querySelectorAll('.btn-admin-setmap').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -523,6 +537,152 @@ class EventHorizonGame {
         this.controls.setPosition(mapData.spawnPoints[0].x, mapData.spawnPoints[0].y, mapData.spawnPoints[0].z);
       }
       this.sound.playKillChime();
+    });
+  }
+
+  // ---------- grants, speed, flight and abilities ----------
+
+  effectiveGrants() {
+    const saved = (this.auth.profile && this.auth.profile.grants) || {};
+    return this.remoteGrants || {
+      speedLevel: saved.speedLevel || 0,
+      fly: !!saved.fly,
+      abilities: saved.abilities || []
+    };
+  }
+
+  applyGrants() {
+    const g = this.effectiveGrants();
+    this.controls.grants = { speedLevel: g.speedLevel || 0, fly: !!g.fly };
+
+    // Granted abilities come first, then the ones this level unlocks
+    const level = (this.auth.profile && this.auth.profile.level) || 1;
+    const available = [...new Set([...(g.abilities || []), ...this.abilities.unlockedFor(level)])];
+    this.abilities.slots = { E: null, Q: null };
+    this.abilities.equip('E', available[0] || null, available);
+    this.abilities.equip('Q', available[1] || null, available);
+  }
+
+  useAbility(slot) {
+    if (this.gameState === 'MENU' || this.isDead) return;
+    const res = this.abilities.use(slot, this.abilityContext());
+    if (res.ok) {
+      this.ui.addChatMessage('⚡ ABILITY', res.hits ? `${res.name} hit ${res.hits}` : res.name, true);
+    }
+  }
+
+  abilityContext() {
+    const cam = this.camera.position;
+    const dir = this.controls.getForwardDirection();
+    const flat = new THREE.Vector3(dir.x, 0, dir.z).normalize();
+
+    let enemies = [];
+    if (this.gameState === 'STORY') {
+      const list = [...this.enemies.enemies];
+      if (this.enemies.boss) list.push(this.enemies.boss);
+      enemies = list.map((e) => ({ pos: e.mesh.position, kind: 'enemy', ref: e }));
+    } else if (this.gameState === 'MULTIPLAYER') {
+      enemies = this.multiplayer.getRemotePlayerMeshes().map((p) => ({ pos: p.mesh.position, kind: 'pilot', ref: p }));
+    }
+
+    return {
+      pos: { x: cam.x, y: cam.y, z: cam.z },
+      dir: { x: flat.x, z: flat.z },
+      enemies,
+      damageEnemy: (e, amount) => {
+        if (e.kind === 'enemy') this.enemies.damageEnemy(e.ref.id, amount);
+        else if (e.kind === 'pilot') this.multiplayer.sendHit(e.ref.id, amount, 'Ability');
+      },
+      stunEnemy: () => {}, // stun is not built yet
+      pullEnemy: (e, x, z) => {
+        if (e.kind === 'enemy') { e.pos.x += (x - e.pos.x) * 0.5; e.pos.z += (z - e.pos.z) * 0.5; }
+      },
+      dash: (vx, vz) => { this.controls.velocity.x = vx; this.controls.velocity.z = vz; },
+      addShield: (n) => {
+        this.shield = Math.min(this.maxShield, this.shield + n);
+        this.ui.updateVitals(this.health, this.maxHealth, this.shield, this.maxShield);
+      }
+    };
+  }
+
+  updateAbilityHUD() {
+    if (!this.abilityHud) return;
+    const show = this.gameState !== 'MENU';
+    this.abilityHud.style.display = show ? 'flex' : 'none';
+    if (!show) return;
+    ['E', 'Q'].forEach((slot) => {
+      const id = this.abilities.slots[slot];
+      const def = id ? ABILITIES[id] : null;
+      const cd = this.abilities.cooldownLeft(slot);
+      const el = this.abilityHud.querySelector(`[data-slot="${slot}"]`);
+      el.textContent = def ? `${slot}: ${def.name}${cd > 0 ? ` (${cd.toFixed(1)}s)` : ' READY'}` : `${slot}: —`;
+      el.style.opacity = def && cd <= 0 ? '1' : '0.5';
+    });
+  }
+
+  buildSelfGrantPanel() {
+    // Ability HUD at the bottom of the screen
+    const hud = document.createElement('div');
+    hud.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:none; gap:24px; z-index:50; font-family:var(--font-display); font-size:0.85rem; color:var(--primary-cyan); text-shadow:0 0 8px rgba(0,240,255,0.6); pointer-events:none;';
+    hud.innerHTML = '<span data-slot="E"></span><span data-slot="Q"></span>';
+    document.body.appendChild(hud);
+    this.abilityHud = hud;
+
+    // Your own powers in the admin console
+    const view = document.getElementById('view-admin');
+    if (!view) return;
+    const sec = document.createElement('div');
+    sec.style.cssText = 'background:rgba(181,123,255,0.07); border:1px solid rgba(181,123,255,0.3); border-radius:6px; padding:16px; margin-bottom:20px;';
+    sec.innerHTML = '<h4 style="font-family:var(--font-display); color:#b57bff; margin-bottom:12px; letter-spacing:1px;">0. YOUR POWERS (FOR YOURSELF)</h4><div id="self-grant-buttons" style="display:flex; gap:8px; flex-wrap:wrap;"></div>';
+    view.insertBefore(sec, view.children[1] || null);
+
+    const root = sec.querySelector('#self-grant-buttons');
+    const applySelf = (next) => {
+      this.auth.profile.grants = next;
+      this.auth.save();
+      this.applyGrants();
+      this.renderGrantControls(root, next, applySelf);
+    };
+    const saved = this.auth.profile.grants || {};
+    this.renderGrantControls(root, {
+      speedLevel: saved.speedLevel || 0,
+      fly: !!saved.fly,
+      abilities: saved.abilities || []
+    }, applySelf);
+  }
+
+  // Draws speed, flight and ability buttons into root. onChange receives the new state.
+  renderGrantControls(root, state, onChange) {
+    const speedNames = ['SPEED: OFF', 'SPEED ×1.5', 'SPEED ×2.5', 'SPEED ×4'];
+    const copy = () => ({ speedLevel: state.speedLevel, fly: state.fly, abilities: [...state.abilities] });
+    root.innerHTML = '';
+
+    const button = (label, active, onClick) => {
+      const b = document.createElement('button');
+      b.className = 'sci-btn' + (active ? ' primary' : '');
+      b.style.cssText = 'padding:5px 8px; font-size:0.7rem;';
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      root.appendChild(b);
+    };
+
+    button(speedNames[state.speedLevel], state.speedLevel > 0, () => {
+      const next = copy();
+      next.speedLevel = (state.speedLevel + 1) % 4;
+      onChange(next);
+    });
+    button(state.fly ? 'FLY: ON' : 'FLY: OFF', state.fly, () => {
+      const next = copy();
+      next.fly = !state.fly;
+      onChange(next);
+    });
+    ABILITY_LIST.forEach((a) => {
+      const on = state.abilities.includes(a.id);
+      button(a.name, on, () => {
+        const next = copy();
+        next.abilities = on ? next.abilities.filter((id) => id !== a.id) : [...next.abilities, a.id];
+        onChange(next);
+      });
     });
   }
 
@@ -608,6 +768,18 @@ class EventHorizonGame {
         this.sound.playKillChime();
       });
 
+      // Grant controls for this pilot (speed, flight, abilities)
+      this.adminGrants = this.adminGrants || {};
+      const grantBox = document.createElement('div');
+      grantBox.style.cssText = 'width:100%; display:flex; gap:6px; flex-wrap:wrap;';
+      card.appendChild(grantBox);
+      const applyPilotGrants = (next) => {
+        this.adminGrants[p.id] = next;
+        this.multiplayer.sendAdminAction('set_grants', p.id, { grants: next });
+        this.renderGrantControls(grantBox, next, applyPilotGrants);
+      };
+      this.renderGrantControls(grantBox, this.adminGrants[p.id] || { speedLevel: 0, fly: false, abilities: [] }, applyPilotGrants);
+
       container.appendChild(card);
     });
   }
@@ -682,6 +854,8 @@ class EventHorizonGame {
     this.gameState = 'MENU';
     this.controls.unlock();
     this.multiplayer.disconnect();
+    this.remoteGrants = null;
+    this.applyGrants();
     this.story.isMissionActive = false;
     this.enemies.clear();
 
@@ -842,6 +1016,10 @@ class EventHorizonGame {
       const isMoving = this.controls.moveForward || this.controls.moveBackward ||
                        this.controls.moveLeft || this.controls.moveRight;
 
+      this.abilities.update(delta);
+      this.weapons.fireMultiplier = this.abilities.fireMultiplier();
+      this.updateAbilityHUD();
+
       this.controls.update(delta);
       this.weapons.update(delta, isMoving, this.controls.isSprinting);
       this.maps.update(delta);
@@ -872,6 +1050,7 @@ class EventHorizonGame {
       } else if (this.gameState === 'MULTIPLAYER') {
         this.multiplayer.update(delta);
         this.multiplayer.setVitals(this.health, this.shield);
+        this.multiplayer.setCloaked(this.abilities.isCloaked());
         this.multiplayer.sendMove(
           this.camera.position,
           this.controls.pitch,

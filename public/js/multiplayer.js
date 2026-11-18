@@ -130,6 +130,7 @@ export class MultiplayerClient {
     this.clockStarted = false;
     this.listenerCleanups = [];
     this.lastSendMoveTime = 0;
+    this.cloaked = false;
 
     // main.js replaces this with a God Mode check
     this.isInvincible = () => false;
@@ -347,6 +348,10 @@ export class MultiplayerClient {
     });
   }
 
+  setCloaked(cloaked) {
+    this.cloaked = !!cloaked;
+  }
+
   // ---------- combat ----------
 
   applyHit(h) {
@@ -405,6 +410,10 @@ export class MultiplayerClient {
         window.dispatchEvent(new CustomEvent('self_damaged', { detail: { damage: 0, health: 500, shield: 500 } }));
         break;
       }
+      case 'set_grants': {
+        window.dispatchEvent(new CustomEvent('grants_updated', { detail: extra.grants || null }));
+        break;
+      }
       case 'force_skin': {
         this.writeMine({ skin: String(extra.skin || 'celestial') });
         break;
@@ -445,7 +454,8 @@ export class MultiplayerClient {
       isMoving: !!isMoving,
       isCrouching: !!isCrouching,
       health: num(this.vitals.health, 100),
-      shield: num(this.vitals.shield, 50)
+      shield: num(this.vitals.shield, 50),
+      cloaked: this.cloaked
     });
   }
 
@@ -554,6 +564,7 @@ export class MultiplayerClient {
     const model = this.skins.createPlayerModel(skin, name);
     model.position.set(num(data.x), num(data.y), num(data.z));
     this.scene.add(model);
+    model.visible = !data.cloaked;
     this.skins.updateNametag(model, name, health, 100);
 
     this.otherPlayers[data.id] = {
@@ -567,7 +578,8 @@ export class MultiplayerClient {
       health,
       kills: num(data.kills),
       deaths: num(data.deaths),
-      score: num(data.kills) * 100
+      score: num(data.kills) * 100,
+      cloaked: !!data.cloaked
     };
   }
 
@@ -589,6 +601,7 @@ export class MultiplayerClient {
     if (d.rotY !== undefined) rp.targetRot = num(d.rotY);
     rp.isMoving = !!d.isMoving;
     if (d.health !== undefined) rp.health = num(d.health, rp.health);
+    if (d.cloaked !== undefined) { rp.cloaked = !!d.cloaked; rp.model.visible = !rp.cloaked; }
     if (d.kills !== undefined) { rp.kills = num(d.kills); rp.score = rp.kills * 100; }
     if (d.deaths !== undefined) rp.deaths = num(d.deaths);
     if (d.name) rp.name = d.name;
@@ -619,7 +632,7 @@ export class MultiplayerClient {
   }
 
   getRemotePlayerMeshes() {
-    return Object.values(this.otherPlayers).map((p) => ({
+    return Object.values(this.otherPlayers).filter((p) => !p.cloaked).map((p) => ({
       id: p.id,
       mesh: p.model,
       name: p.name

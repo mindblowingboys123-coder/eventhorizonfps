@@ -41,6 +41,10 @@ export class FPSControls {
     // Footstep timer
     this.footstepTimer = 0;
 
+    // Admin-granted movement: speedLevel 0-3 and fly on/off (set by main.js)
+    this.grants = { speedLevel: 0, fly: false };
+    this.flyUp = false;
+
     // Key event listeners
     this.onKeyDown = this.handleKeyDown.bind(this);
     this.onKeyUp = this.handleKeyUp.bind(this);
@@ -107,6 +111,7 @@ export class FPSControls {
         this.moveRight = true;
         break;
       case 'Space':
+        if (this.grants.fly) { this.flyUp = true; break; }
         if (this.canJump) {
           const isMoon = this.auth && this.auth.profile && this.auth.profile.moonGravity;
           this.velocity.y = isMoon ? 24.0 : 15.0;
@@ -146,6 +151,9 @@ export class FPSControls {
       case 'ShiftRight':
         this.isSprinting = false;
         break;
+      case 'Space':
+        this.flyUp = false;
+        break;
       case 'KeyC':
         this.isCrouching = false;
         break;
@@ -167,9 +175,15 @@ export class FPSControls {
     this.velocity.x -= this.velocity.x * 10.0 * delta;
     this.velocity.z -= this.velocity.z * 10.0 * delta;
 
-    // Gravity
-    const grav = (this.auth && this.auth.profile && this.auth.profile.moonGravity) ? 10.0 : 28.0;
-    this.velocity.y -= grav * delta;
+    if (this.grants.fly) {
+      // Flight: Space rises, C descends, no gravity
+      const flyTarget = ((this.flyUp ? 1 : 0) - (this.isCrouching ? 1 : 0)) * 14.0;
+      this.velocity.y += (flyTarget - this.velocity.y) * Math.min(1, delta * 8);
+    } else {
+      // Gravity
+      const grav = (this.auth && this.auth.profile && this.auth.profile.moonGravity) ? 10.0 : 28.0;
+      this.velocity.y -= grav * delta;
+    }
 
     // Jump pads: launch the player high into the air
     const pads = this.colliders.jumpPads || [];
@@ -190,7 +204,10 @@ export class FPSControls {
     let baseSpeed = 48.0;
     if (this.isSprinting && !this.isCrouching) baseSpeed = 85.0;
     if (this.isCrouching) baseSpeed = 24.0;
-    if (this.auth && this.auth.profile && this.auth.profile.superSpeed) baseSpeed *= 2.5;
+    const speedMultipliers = [1, 1.5, 2.5, 4];
+    const level = this.grants.speedLevel || 0;
+    if (level > 0) baseSpeed *= speedMultipliers[level];
+    else if (this.auth && this.auth.profile && this.auth.profile.superSpeed) baseSpeed *= 2.5;
 
     // Movement direction from input
     this.direction.z = Number(this.moveForward) - Number(this.moveBackward);

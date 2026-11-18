@@ -1,5 +1,8 @@
 // EVENT HORIZON - PILOT AUTH & PERSISTENCE (WITH IN-CODE FIREBASE)
 import { FIREBASE_CONFIG, REQUIRE_FIREBASE_LOGIN } from './firebase-config.js';
+import { SKIN_DEFINITIONS } from './skins.js';
+import { WEAPON_DEFS } from './weapons.js';
+import { TRACER_OPTIONS } from './shop.js';
 
 export class AuthManager {
   constructor() {
@@ -249,9 +252,10 @@ export class AuthManager {
   }
 
   unlockAllCheats() {
-    this.profile.unlockedSkins = ['vanguard', 'void_walker', 'cyber_ronin', 'solar_flare', 'obsidian', 'celestial'];
-    this.profile.unlockedWeapons = ['rifle', 'shotgun', 'railgun', 'blaster'];
-    this.profile.unlockedCamos = ['cyan', 'violet', 'orange', 'emerald', 'gold', 'default'];
+    // Every suit, weapon and trail in the game, including admin-only ones
+    this.profile.unlockedSkins = Object.keys(SKIN_DEFINITIONS);
+    this.profile.unlockedWeapons = Object.keys(WEAPON_DEFS);
+    this.profile.unlockedCamos = [...TRACER_OPTIONS.map(t => t.id), 'default'];
     this.profile.credits += 100000;
     this.profile.level = 99;
     this.save();
