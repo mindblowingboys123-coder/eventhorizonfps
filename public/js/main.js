@@ -756,6 +756,8 @@ class EventHorizonGame {
     }
 
     // Hitscan collision check
+    // Name tags are sprites, which need the camera to raycast safely
+    this.raycaster.camera = this.camera;
     shots.forEach(shot => {
       this.raycaster.set(shot.origin, shot.direction);
 
