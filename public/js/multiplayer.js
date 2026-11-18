@@ -434,9 +434,11 @@ export class MultiplayerClient {
     if (t - this.lastSendMoveTime < SEND_INTERVAL_MS) return;
     this.lastSendMoveTime = t;
 
+    // pos is the camera (eye height). Other pilots need the feet position, or their models float.
+    const feetOffset = isCrouching ? 0.9 : 1.7; // same heights controls.js uses
     this.writeMine({
       x: round2(pos.x),
-      y: round2(pos.y),
+      y: round2(pos.y - feetOffset),
       z: round2(pos.z),
       rotX: round2(rotX),
       rotY: round2(rotY),
