@@ -331,6 +331,26 @@ export class MultiplayerClient {
       }
     });
 
+    // Singularity Collapse: one shared write that every pilot in the room hears
+    let cataclysmPrimed = false;
+    this.listen(R('meta/cataclysm'), 'value', (snap) => {
+      const c = snap.val();
+      const at = c ? num(c.at) : 0;
+      if (!cataclysmPrimed) {
+        // Joining mid-event only learns the state; nothing explodes
+        cataclysmPrimed = true;
+        this.lastCataclysmAt = at;
+        window.dispatchEvent(new CustomEvent('cataclysm_state', { detail: { at } }));
+        return;
+      }
+      if (at && at !== this.lastCataclysmAt) {
+        this.lastCataclysmAt = at;
+        window.dispatchEvent(new CustomEvent('cataclysm', {
+          detail: { at, by: String(c.by || 'OVERLORD'), byId: String(c.byId || '') }
+        }));
+      }
+    });
+
     // Landscape changes made by the admin
     let primed = false;
     this.listen(R('meta/map'), 'value', (snap) => {
@@ -375,6 +395,14 @@ export class MultiplayerClient {
     window.dispatchEvent(new CustomEvent('self_damaged', { detail: { damage: dmg, health, shield } }));
 
     if (health <= 0) this.die(h.from, h.fromName, h.w);
+  }
+
+  triggerCataclysm() {
+    if (!this.isConnected || !this.db || !this.currentRoom) return false;
+    this.db.ref(`rooms/${this.currentRoom}/meta/cataclysm`)
+      .set({ at: this.now(), by: this.myName, byId: this.myUid })
+      .catch((e) => console.error('Singularity collapse refused:', e));
+    return true;
   }
 
   die(killerId, killerName, weapon) {
