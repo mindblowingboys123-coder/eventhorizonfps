@@ -7,13 +7,19 @@ export const TRACER_OPTIONS = [
   { id: 'violet', name: 'Void Violet Beam', color: '#9d4edd', hex: 0x9d4edd, cost: 400, unlocked: false },
   { id: 'orange', name: 'Thermal Ember', color: '#ff6b35', hex: 0xff6b35, cost: 400, unlocked: false },
   { id: 'emerald', name: 'Gamma Emerald', color: '#00ff88', hex: 0x00ff88, cost: 600, unlocked: false },
-  { id: 'gold', name: 'Solaris Gold Pulse', color: '#ffd166', hex: 0xffd166, cost: 1000, unlocked: false }
+  { id: 'gold', name: 'Solaris Gold Pulse', color: '#ffd166', hex: 0xffd166, cost: 1000, unlocked: false },
+  { id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", color: '#ff2bd6', hex: 0xff2bd6, cost: 0, unlocked: true, adminOnly: true }
 ];
 
 export class ShopManager {
   constructor(authManager, soundEngine) {
     this.auth = authManager;
     this.sound = soundEngine;
+  }
+
+  // Admin-only items are granted to the Overlord account automatically
+  ensureAdminAccess(profile, list, id, adminOnly) {
+    if (adminOnly && profile.isAdmin && !profile[list].includes(id)) profile[list].push(id);
   }
 
   renderSkinsTab(container) {
@@ -24,6 +30,8 @@ export class ShopManager {
 
     for (const key in SKIN_DEFINITIONS) {
       const skin = SKIN_DEFINITIONS[key];
+      if (skin.adminOnly && !profile.isAdmin) continue;
+      this.ensureAdminAccess(profile, 'unlockedSkins', skin.id, skin.adminOnly);
       const isUnlocked = profile.unlockedSkins.includes(skin.id);
       const isEquipped = profile.equippedSkin === skin.id;
 
@@ -74,6 +82,8 @@ export class ShopManager {
 
     for (const key in WEAPON_DEFS) {
       const w = WEAPON_DEFS[key];
+      if (w.adminOnly && !profile.isAdmin) continue;
+      this.ensureAdminAccess(profile, 'unlockedWeapons', w.id, w.adminOnly);
       const isUnlocked = profile.unlockedWeapons.includes(w.id);
       const isEquipped = profile.equippedWeapon === w.id;
 
@@ -124,7 +134,8 @@ export class ShopManager {
     const profile = this.auth.profile;
 
     TRACER_OPTIONS.forEach(t => {
-      const isUnlocked = t.cost === 0 || profile.unlockedCamos.includes(t.id);
+      if (t.adminOnly && !profile.isAdmin) return;
+      const isUnlocked = t.adminOnly ? true : (t.cost === 0 || profile.unlockedCamos.includes(t.id));
       const isEquipped = profile.equippedTracer === t.id;
 
       const card = document.createElement('div');

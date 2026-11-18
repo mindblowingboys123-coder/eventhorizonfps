@@ -115,6 +115,11 @@ export const SKIN_DEFINITIONS = {
     id: 'galaxy_nomad', name: 'Galaxy Nomad', rarity: 'mythic', cost: 4000, unlocked: false,
     colors: { armor: 0x14113a, secondary: 0x3c2a8a, visor: 0xffe066, core: 0xb070ff },
     description: 'Star-dusted suit for pilots who have been past the horizon.'
+  },
+  cyberpunk_horizen: {
+    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", rarity: 'mythic', cost: 0, unlocked: false, adminOnly: true,
+    colors: { armor: 0x0a0a14, secondary: 0x1b1b2f, visor: 0xff2bd6, core: 0x00f0ff },
+    description: 'Admin-only neon suit. Only the Overlord can wear it.'
   }
 };
 

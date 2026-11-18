@@ -9,7 +9,7 @@ import { MapManager } from './maps.js';
 import { EnemyManager } from './enemies.js';
 import { StoryCampaign } from './story.js';
 import { MultiplayerClient } from './multiplayer.js';
-import { ShopManager } from './shop.js';
+import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 
 class EventHorizonGame {
@@ -745,14 +745,17 @@ class EventHorizonGame {
   triggerPlayerShoot() {
     const origin = this.camera.position.clone();
     const dir = this.controls.getForwardDirection();
-    const shots = this.weapons.shoot(origin, dir);
+    // Admin-only trail colour (other trails are not applied yet)
+    const equippedTrail = TRACER_OPTIONS.find(t => t.id === this.auth.profile.equippedTracer);
+    const trailColor = equippedTrail && equippedTrail.adminOnly && this.auth.profile.isAdmin ? equippedTrail.hex : null;
+    const shots = this.weapons.shoot(origin, dir, trailColor);
 
     if (!shots) return; // out of ammo or reloading
 
     // Broadcast shoot event in multiplayer
     if (this.gameState === 'MULTIPLAYER') {
       const activeWep = this.weapons.getActiveWeapon();
-      this.multiplayer.sendShoot(origin, dir, activeWep.id, activeWep.tracerColor);
+      this.multiplayer.sendShoot(origin, dir, activeWep.id, trailColor || activeWep.tracerColor);
     }
 
     // Hitscan collision check

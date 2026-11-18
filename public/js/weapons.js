@@ -76,6 +76,11 @@ export const WEAPON_DEFS = {
     reloadTime: 2.4, bulletSpeed: 400, tracerColor: 0xff4fd8, recoilAmount: 0.22, len: 0.9, price: 2500,
     description: 'One clean shot through the horizon. Two shots per magazine.'
   },
+  cyberpunk_horizen: {
+    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", damage: 24, fireRate: 0.1, magSize: 30, reserveAmmo: 150,
+    reloadTime: 1.5, bulletSpeed: 150, tracerColor: 0xff2bd6, recoilAmount: 0.04, len: 0.5, price: 0, adminOnly: true,
+    description: 'Admin-only prototype forged in a forbidden build. Neon magenta plasma.'
+  },
   horizen: {
     id: 'horizen', name: "HORIZEN'S FINAL", damage: 99999999999999999, fireRate: 10, magSize: 1, reserveAmmo: 5,
     reloadTime: 0.1, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 0, redeemOnly: true,
