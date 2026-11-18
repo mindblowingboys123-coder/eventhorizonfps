@@ -294,7 +294,6 @@ export class MultiplayerClient {
     // Damage aimed at this pilot
     this.listen(R(`hits/${me}`), 'child_added', (snap) => {
       const h = snap.val();
-      console.log('[MP DEBUG] hit received', h, 'dead', this.dead, 'age', this.now() - num(h && h.t));
       snap.ref.remove().catch(() => {});
       if (!h || this.dead || this.now() - num(h.t) > HIT_MAX_AGE_MS) return;
       this.applyHit(h);
@@ -366,7 +365,6 @@ export class MultiplayerClient {
     }
     health = Math.max(0, health - rest);
 
-    console.log('[MP DEBUG] applying damage', { dmg, health, shield });
     this.vitals = { health, shield };
     this.writeMine({ health, shield });
     window.dispatchEvent(new CustomEvent('self_damaged', { detail: { damage: dmg, health, shield } }));
@@ -465,7 +463,6 @@ export class MultiplayerClient {
   }
 
   sendHit(targetId, damage, weaponId) {
-    console.log('[MP DEBUG] sendHit', { joined: this.joined, targetId, me: this.myUid, damage });
     if (!this.joined || !targetId || targetId === this.myUid) return;
     this.roomRef(`hits/${targetId}`).push(clean({
       dmg: num(damage, 20),
