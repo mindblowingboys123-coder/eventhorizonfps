@@ -376,13 +376,17 @@ export class MultiplayerClient {
   }
 
   triggerCataclysm(base = 'singularity') {
-    if (!this.isConnected || !this.db || !this.currentRoom) return false;
+    if (!this.isConnected || !this.db || !this.currentRoom) return 0;
+    const at = this.now();
     const name = String(this.myName || 'OVERLORD').replace(/\|/g, '/');
     // The collapse is written into the room's map value, keeping the base map so it can return later
     this.db.ref(`rooms/${this.currentRoom}/meta/map`)
-      .set(`c|${this.now()}|${this.myUid}|${name}|${base}`)
-      .catch((e) => console.error('Singularity collapse refused:', e));
-    return true;
+      .set(`c|${at}|${this.myUid}|${name}|${base}`)
+      .catch((e) => {
+        console.error('Singularity collapse refused:', e);
+        alert('The server refused the Singularity Collapse, so other players will not see it. Check that the database rules are published.');
+      });
+    return at;
   }
 
   // meta/map is a plain map id, or "c|<at>|<byUid>|<byName>|<baseMap>" during a collapse
