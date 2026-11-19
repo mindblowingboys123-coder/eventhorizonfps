@@ -357,8 +357,8 @@ export class MapManager {
 
     // Static core island in the middle, with two jump pads
     this.createPlatform(group, 0, 0, 0, 12, 3, 12, slabMat, glowMat);
-    this.createJumpPad(group, 4, 1.65, 4, padColor);
-    this.createJumpPad(group, -4, 1.65, -4, padColor);
+    this.createJumpPad(group, 4, 1.66, 4, padColor);
+    this.createJumpPad(group, -4, 1.66, -4, padColor);
 
     // Shattered pieces of floor that orbit the core and bob up and down
     const TILE_COUNT = 10;
@@ -414,11 +414,11 @@ export class MapManager {
       // Some tiles carry a jump pad that moves with them
       if (ring === 0) {
         const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.3, 16), new THREE.MeshBasicMaterial({ color: padColor }));
-        pad.position.set(0, tileH / 2 + 0.15, 0);
+        pad.position.set(0, tileH / 2 + 0.16, 0);
         mesh.add(pad);
         this.colliders.jumpPads.push({
           get x() { return mesh.position.x; },
-          get y() { return mesh.position.y + tileH / 2 + 0.3; },
+          get y() { return mesh.position.y + tileH / 2 + 0.31; },
           get z() { return mesh.position.z; },
           r: 1.5
         });
@@ -488,7 +488,7 @@ export class MapManager {
 
     if (trimMat) {
       const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.4, d + 0.2), trimMat);
-      trim.position.set(x, y + h / 2 - 0.2, z);
+      trim.position.set(x, y + h / 2 - 0.15, z);
       parent.add(trim);
     }
 
