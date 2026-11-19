@@ -13,7 +13,7 @@ import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
 const CATACLYSM_MS = 10 * 60 * 1000; // how long the centre floor stays broken
-const SAFE_SPAWN = { x: 45, y: 8, z: 0 }; // satellite platform, used while the floor is broken
+const SHATTERED_SPAWN = { x: 0, y: 3, z: 0 }; // core island on the shattered floor map
 
 
 class EventHorizonGame {
@@ -38,6 +38,8 @@ class EventHorizonGame {
     this.abilities = new AbilityManager();
     this.remoteGrants = null; // grants sent by the admin during a match
     this.cataclysmAt = 0;
+    this.baseMapId = 'singularity'; // the map the room is on
+    this.loadedMapId = null;        // the map currently built
     this.cataclysmReadyAt = 0;
     this.lastCataclysmCheck = 0;
 
@@ -545,35 +547,32 @@ class EventHorizonGame {
     });
 
     window.addEventListener('room_map_changed', (e) => {
-      const mapData = this.maps.loadMap(e.detail.map);
-      this.controls.setColliders(mapData.colliders);
-      if (mapData.spawnPoints.length > 0) {
-        this.controls.setPosition(mapData.spawnPoints[0].x, mapData.spawnPoints[0].y, mapData.spawnPoints[0].z);
-      }
+      this.baseMapId = e.detail.map;
       this.sound.playKillChime();
+      this.syncCataclysm();
     });
   }
 
   // ---------- singularity collapse (admin) ----------
 
-  // Keeps the floor and void respawn in step with the shared collapse timer
+  // Shows the shattered floor map while a collapse runs, and the room's own map otherwise
   syncCataclysm() {
-    const active = this.gameState === 'MULTIPLAYER'
-      && this.maps.currentMapId === 'singularity'
-      && this.cataclysmAt > 0
-      && this.multiplayer.now() - this.cataclysmAt < CATACLYSM_MS;
-    if (active) {
-      this.maps.breakCenterFloor();
-      this.controls.voidRespawn = SAFE_SPAWN;
-    } else {
-      this.maps.repairCenterFloor();
-      this.controls.voidRespawn = null;
+    if (this.gameState !== 'MULTIPLAYER') return;
+    const collapsing = this.cataclysmAt > 0 && this.multiplayer.now() - this.cataclysmAt < CATACLYSM_MS;
+    const target = collapsing ? 'shattered' : (this.baseMapId || 'singularity');
+    if (target !== this.loadedMapId) {
+      const mapData = this.maps.loadMap(target);
+      this.loadedMapId = target;
+      this.controls.setColliders(mapData.colliders);
+      const sp = mapData.spawnPoints[0];
+      if (sp) this.controls.setPosition(sp.x, sp.y, sp.z);
     }
+    this.controls.voidRespawn = collapsing ? SHATTERED_SPAWN : null;
   }
 
   triggerSingularityCollapse() {
     if (!(this.auth.profile && this.auth.profile.isAdmin)) return;
-    if (this.gameState !== 'MULTIPLAYER' || this.maps.currentMapId !== 'singularity') {
+    if (this.gameState !== 'MULTIPLAYER' || this.baseMapId !== 'singularity') {
       this.ui.addChatMessage('⚡ COLLAPSE', 'Singularity Collapse only works on the Singularity Core map.', true);
       return;
     }
@@ -582,7 +581,7 @@ class EventHorizonGame {
       this.ui.addChatMessage('⚡ COLLAPSE', `Recharging: ${Math.ceil(left / 1000)}s left.`, true);
       return;
     }
-    if (!confirm('Trigger the Singularity Collapse? Everyone on this server will be killed and the floor will break for 10 minutes.')) return;
+    if (!confirm('Trigger the Singularity Collapse? Everyone on this server except you will be killed, and the room moves to the shattered floor for 10 minutes.')) return;
     if (this.multiplayer.triggerCataclysm()) {
       this.cataclysmReadyAt = performance.now() + CATACLYSM_MS;
     }
@@ -590,13 +589,15 @@ class EventHorizonGame {
 
   onCataclysm(detail) {
     this.cataclysmAt = detail.at;
-    this.syncCataclysm();
-    if (this.gameState !== 'MULTIPLAYER' || this.maps.currentMapId !== 'singularity') return;
-    this.maps.playBlast();
+    if (this.gameState !== 'MULTIPLAYER') return;
+    this.ui.addChatMessage('⚡ COLLAPSE', `${detail.by} triggered a singularity collapse!`, true);
     this.ui.triggerDamageFlash();
     this.sound.playPlayerHurt();
-    this.ui.addChatMessage('⚡ COLLAPSE', `${detail.by} triggered a singularity collapse!`, true);
-    if (!this.isDead) this.multiplayer.die(detail.byId, detail.by, 'Singularity Collapse');
+    // The admin who triggered it survives; everyone else in the room is killed
+    const triggeredByMe = !!detail.byId && detail.byId === this.multiplayer.myUid;
+    if (!triggeredByMe && !this.isDead) this.multiplayer.die(detail.byId, detail.by, 'Singularity Collapse');
+    this.syncCataclysm();
+    this.maps.playBlast();
   }
 
   // ---------- grants, speed, flight and abilities ----------
@@ -900,6 +901,8 @@ class EventHorizonGame {
 
     const mapData = this.maps.loadMap(mapId);
     this.controls.setColliders(mapData.colliders);
+    this.baseMapId = mapId;
+    this.loadedMapId = mapId;
     this.syncCataclysm();
 
     this.multiplayer.connect(
