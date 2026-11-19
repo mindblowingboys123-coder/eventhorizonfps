@@ -475,11 +475,7 @@ class EventHorizonGame {
     }
 
     this.buildSelfGrantPanel();
-    window.addEventListener('cataclysm_state', (e) => {
-      this.cataclysmAt = e.detail.at || 0;
-      this.syncCataclysm();
-    });
-    window.addEventListener('cataclysm', (e) => this.onCataclysm(e.detail));
+    window.addEventListener('room_state', (e) => this.onRoomState(e.detail));
 
     window.addEventListener('grants_updated', (e) => {
       this.remoteGrants = e.detail || null;
@@ -582,9 +578,24 @@ class EventHorizonGame {
       return;
     }
     if (!confirm('Trigger the Singularity Collapse? Everyone on this server except you will be killed, and the room moves to the shattered floor for 10 minutes.')) return;
-    if (this.multiplayer.triggerCataclysm()) {
+    if (this.multiplayer.triggerCataclysm(this.baseMapId)) {
       this.cataclysmReadyAt = performance.now() + CATACLYSM_MS;
     }
+  }
+
+  // Everything about the room's map arrives here: the base map and any collapse
+  onRoomState({ base, collapse, firstTime }) {
+    if (base) {
+      if (!firstTime && base !== this.baseMapId) this.sound.playKillChime();
+      this.baseMapId = base;
+    }
+    const isNew = !!collapse && collapse.at !== this.cataclysmAt;
+    this.cataclysmAt = collapse ? collapse.at : 0;
+    if (isNew && !firstTime) {
+      this.onCataclysm(collapse);
+      return;
+    }
+    this.syncCataclysm();
   }
 
   onCataclysm(detail) {
