@@ -384,7 +384,11 @@ export class MultiplayerClient {
       .set(`c|${at}|${this.myUid}|${name}|${base}`)
       .catch((e) => {
         console.error('Singularity collapse refused:', e);
-        alert('The server refused the Singularity Collapse, so other players will not see it. Check that the database rules are published.');
+        const fbUser = window.firebase && window.firebase.auth ? window.firebase.auth().currentUser : null;
+        const who = !fbUser ? 'Not signed in to Firebase.'
+          : fbUser.email ? 'Signed in as ' + fbUser.email + (fbUser.emailVerified ? ' (verified).' : ' (email NOT verified).')
+          : 'Signed in as a guest (no email). Sign in with the admin email instead.';
+        alert('The server refused the Singularity Collapse. ' + who);
       });
     return at;
   }
