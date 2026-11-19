@@ -388,7 +388,15 @@ export class MultiplayerClient {
         const who = !fbUser ? 'Not signed in to Firebase.'
           : fbUser.email ? 'Signed in as ' + fbUser.email + (fbUser.emailVerified ? ' (verified).' : ' (email NOT verified).')
           : 'Signed in as a guest (no email). Sign in with the admin email instead.';
-        alert('The server refused the Singularity Collapse. ' + who);
+        if (fbUser && fbUser.email && !fbUser.emailVerified) {
+          if (confirm('The server refused the Singularity Collapse. ' + who + '\n\nSend a verification email to ' + fbUser.email + '? Click the link in it, then sign out and back in.')) {
+            fbUser.sendEmailVerification()
+              .then(() => alert('Verification email sent. Click the link in it (check spam), then sign out and back in.'))
+              .catch((err) => alert('Could not send the verification email: ' + err.message));
+          }
+        } else {
+          alert('The server refused the Singularity Collapse. ' + who);
+        }
       });
     return at;
   }
