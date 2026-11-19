@@ -184,7 +184,7 @@ export class MultiplayerClient {
 
   async currentMapId(room) {
     const snap = await this.db.ref(`rooms/${room}/meta/map`).once('value');
-    return snap.exists() ? snap.val() : ROOMS[room].map;
+    return snap.exists() ? this.parseRoomMap(snap.val()).base : ROOMS[room].map;
   }
 
   // ---------- joining and leaving ----------
@@ -331,40 +331,18 @@ export class MultiplayerClient {
       }
     });
 
-    // Singularity Collapse: one shared write that every pilot in the room hears
-    let cataclysmPrimed = false;
-    this.listen(R('meta/cataclysm'), 'value', (snap) => {
-      const c = snap.val();
-      const at = c ? num(c.at) : 0;
-      if (!cataclysmPrimed) {
-        // Joining mid-event only learns the state; nothing explodes
-        cataclysmPrimed = true;
-        this.lastCataclysmAt = at;
-        window.dispatchEvent(new CustomEvent('cataclysm_state', { detail: { at } }));
-        return;
-      }
-      if (at && at !== this.lastCataclysmAt) {
-        this.lastCataclysmAt = at;
-        window.dispatchEvent(new CustomEvent('cataclysm', {
-          detail: { at, by: String(c.by || 'OVERLORD'), byId: String(c.byId || '') }
-        }));
-      }
-    });
-
-    // Landscape changes made by the admin
-    let primed = false;
+    // Room map and Singularity Collapse share one value (meta/map), so they always arrive together
+    let roomPrimed = false;
+    let lastRoomRaw = null;
     this.listen(R('meta/map'), 'value', (snap) => {
-      const map = snap.val();
-      if (!primed) {
-        // First reading just records the current landscape; nothing changed yet
-        primed = true;
-        this.lastMap = map || null;
-        return;
-      }
-      if (map && map !== this.lastMap) {
-        this.lastMap = map;
-        window.dispatchEvent(new CustomEvent('room_map_changed', { detail: { map } }));
-      }
+      const raw = snap.val() ? String(snap.val()) : null;
+      if (raw === lastRoomRaw) return;
+      lastRoomRaw = raw;
+      const firstTime = !roomPrimed;
+      roomPrimed = true;
+      window.dispatchEvent(new CustomEvent('room_state', {
+        detail: { ...this.parseRoomMap(raw), firstTime }
+      }));
     });
   }
 
@@ -397,12 +375,26 @@ export class MultiplayerClient {
     if (health <= 0) this.die(h.from, h.fromName, h.w);
   }
 
-  triggerCataclysm() {
+  triggerCataclysm(base = 'singularity') {
     if (!this.isConnected || !this.db || !this.currentRoom) return false;
-    this.db.ref(`rooms/${this.currentRoom}/meta/cataclysm`)
-      .set({ at: this.now(), by: this.myName, byId: this.myUid })
+    const name = String(this.myName || 'OVERLORD').replace(/\|/g, '/');
+    // The collapse is written into the room's map value, keeping the base map so it can return later
+    this.db.ref(`rooms/${this.currentRoom}/meta/map`)
+      .set(`c|${this.now()}|${this.myUid}|${name}|${base}`)
       .catch((e) => console.error('Singularity collapse refused:', e));
     return true;
+  }
+
+  // meta/map is a plain map id, or "c|<at>|<byUid>|<byName>|<baseMap>" during a collapse
+  parseRoomMap(raw) {
+    if (!raw) return { base: null, collapse: null };
+    const s = String(raw);
+    if (!s.startsWith('c|')) return { base: s, collapse: null };
+    const [, at, byId, by, base] = s.split('|');
+    return {
+      base: base || 'singularity',
+      collapse: { at: Number(at) || 0, byId: byId || '', by: by || 'OVERLORD' }
+    };
   }
 
   die(killerId, killerName, weapon) {
@@ -575,7 +567,7 @@ export class MultiplayerClient {
       return {
         id,
         name: ROOMS[id].name,
-        map: mapSnap.val() || ROOMS[id].map,
+        map: mapSnap.val() ? this.parseRoomMap(mapSnap.val()).base : ROOMS[id].map,
         playerCount: Object.keys(players).length
       };
     }));
