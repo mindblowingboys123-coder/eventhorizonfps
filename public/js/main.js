@@ -578,8 +578,15 @@ class EventHorizonGame {
       return;
     }
     if (!confirm('Trigger the Singularity Collapse? Everyone on this server except you will be killed, and the room moves to the shattered floor for 10 minutes.')) return;
-    if (this.multiplayer.triggerCataclysm(this.baseMapId)) {
+    const at = this.multiplayer.triggerCataclysm(this.baseMapId);
+    if (at) {
       this.cataclysmReadyAt = performance.now() + CATACLYSM_MS;
+      // Apply the collapse here at once; the server's copy of the same collapse is then ignored
+      this.onRoomState({
+        base: this.baseMapId,
+        collapse: { at, byId: this.multiplayer.myUid, by: this.multiplayer.myName },
+        firstTime: false
+      });
     }
   }
 
