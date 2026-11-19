@@ -186,6 +186,14 @@ export class FPSControls {
       this.velocity.y -= grav * delta;
     }
 
+    // Ride moving platforms: move with whatever we are standing on
+    if (this.groundBox && this.canJump && this.groundBox.userData && this.groundBox.userData.delta) {
+      const d = this.groundBox.userData.delta;
+      this.camera.position.x += d.x;
+      this.camera.position.y += d.y;
+      this.camera.position.z += d.z;
+    }
+
     // Jump pads: launch the player high into the air
     const pads = this.colliders.jumpPads || [];
     for (let i = 0; i < pads.length; i++) {
@@ -247,6 +255,7 @@ export class FPSControls {
     let allowedY = nextY;
 
     let onGround = false;
+    let landedBox = null;
 
     // Floor / platform check
     for (let i = 0; i < this.colliders.length; i++) {
@@ -263,6 +272,7 @@ export class FPSControls {
           allowedY = box.max.y + this.currentHeight;
           this.velocity.y = 0;
           onGround = true;
+          landedBox = box;
         }
       }
     }
@@ -278,6 +288,7 @@ export class FPSControls {
       window.dispatchEvent(new CustomEvent('player_fell_into_void'));
     }
 
+    this.groundBox = onGround ? landedBox : null;
     if (onGround) {
       this.canJump = true;
     }
