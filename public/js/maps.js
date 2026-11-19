@@ -17,10 +17,9 @@ export class MapManager {
       this.currentMapGroup = null;
     }
     this.colliders = [];
+    this.colliders.jumpPads = [];
     this.animatedObjects = [];
     this.currentMapId = mapId;
-    this.centerBroken = false;
-    this.crackGroup = null;
 
     const mapGroup = new THREE.Group();
     let spawnPoints = [];
@@ -31,6 +30,9 @@ export class MapManager {
         break;
       case 'mars':
         spawnPoints = this.buildMarsOutpost(mapGroup);
+        break;
+      case 'shattered':
+        spawnPoints = this.buildShatteredFloor(mapGroup);
         break;
       case 'cyber':
         spawnPoints = this.buildCyberVoid(mapGroup);
@@ -119,8 +121,6 @@ export class MapManager {
 
     // Center Main Platform
     this.createPlatform(group, 0, 0, 0, 36, 3, 36, platformMat, metalTrimMat);
-    this.centerFloorCollider = this.colliders[this.colliders.length - 1];
-    this.centerFloorParts = group.children.slice(-2);
 
     // Energy Pillars on center platform
     this.createEnergyPillar(group, 14, 1.5, 14, 0x00f0ff);
@@ -345,54 +345,112 @@ export class MapManager {
   }
 
   // ========================================================
-  // SINGULARITY COLLAPSE (admin event): break and repair the centre floor
+  // 5. SHATTERED FLOOR (SINGULARITY COLLAPSE MAP)
   // ========================================================
-  breakCenterFloor() {
-    if (this.centerBroken || this.currentMapId !== 'singularity' || !this.centerFloorCollider) return;
+  buildShatteredFloor(group) {
+    this.addStarfield(group, 2500, 0xffb3a0);
+    this.addBlackHole(group);
 
-    // Remove the floor's collider so players fall through, and hide the slab
-    const idx = this.colliders.indexOf(this.centerFloorCollider);
-    if (idx !== -1) this.colliders.splice(idx, 1);
-    this.centerFloorParts.forEach((p) => { p.visible = false; });
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x3b2a3d, roughness: 0.7, metalness: 0.3 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xff3355 });
+    const padColor = 0xffb3a0;
 
-    // Cracked debris and glowing fissures where the floor used to be
-    const crackGroup = new THREE.Group();
-    const shardMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9, metalness: 0.3 });
-    const crackMat = new THREE.MeshBasicMaterial({ color: 0xff3355 });
-    for (let i = 0; i < 12; i++) {
-      const shard = new THREE.Mesh(new THREE.BoxGeometry(3 + Math.random() * 4, 0.4, 3 + Math.random() * 4), shardMat);
-      const a = Math.random() * Math.PI * 2;
-      const r = 4 + Math.random() * 12;
-      shard.position.set(Math.cos(a) * r, 1.2 + Math.random() * 0.6, Math.sin(a) * r);
-      shard.rotation.set((Math.random() - 0.5) * 0.7, Math.random() * Math.PI, (Math.random() - 0.5) * 0.7);
-      crackGroup.add(shard);
+    // Static core island in the middle, with two jump pads
+    this.createPlatform(group, 0, 0, 0, 12, 3, 12, slabMat, glowMat);
+    this.createJumpPad(group, 4, 1.65, 4, padColor);
+    this.createJumpPad(group, -4, 1.65, -4, padColor);
+
+    // Shattered pieces of floor that orbit the core and bob up and down
+    const TILE_COUNT = 10;
+    const tileH = 1.2;
+    for (let i = 0; i < TILE_COUNT; i++) {
+      const w = 6 + (i % 3) * 1.5;
+      const d = 5 + (i % 2) * 2;
+      const size = new THREE.Vector3(w, tileH, d);
+
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, tileH, d), slabMat);
+      group.add(mesh);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.12, d + 0.2), glowMat);
+      edge.position.set(0, tileH / 2 + 0.02, 0);
+      mesh.add(edge);
+
+      // Three orbit rings; the inner ring is the one with jump pads
+      const ring = i % 3;
+      const radius = 16 + ring * 8;
+      const dir = i % 2 ? 1 : -1;
+      const state = { angle: (i / TILE_COUNT) * Math.PI * 2, t: i * 0.7 };
+      const speed = dir * (3 / radius);            // about 3 units per second around the orbit
+      const baseY = 4 + ring * 2.5;
+      const bob = 1.2 + (i % 2) * 0.6;
+      const place = (s) => new THREE.Vector3(
+        Math.cos(s.angle) * radius,
+        baseY + Math.sin(s.t * 0.6) * bob,
+        Math.sin(s.angle) * radius
+      );
+
+      mesh.position.copy(place(state));
+      const box = new THREE.Box3();
+      box.setFromCenterAndSize(mesh.position, size);
+      box.userData = { delta: { x: 0, y: 0, z: 0 } };
+      this.colliders.push(box);
+
+      const prev = mesh.position.clone();
+      this.animatedObjects.push({
+        update: (dt) => {
+          state.angle += speed * dt;
+          state.t += dt;
+          mesh.position.copy(place(state));
+          box.setFromCenterAndSize(mesh.position, size);
+          // How far the tile moved this frame, so the controller can carry a player standing on it
+          box.userData.delta = {
+            x: mesh.position.x - prev.x,
+            y: mesh.position.y - prev.y,
+            z: mesh.position.z - prev.z
+          };
+          prev.copy(mesh.position);
+        }
+      });
+
+      // Some tiles carry a jump pad that moves with them
+      if (ring === 0) {
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.3, 16), new THREE.MeshBasicMaterial({ color: padColor }));
+        pad.position.set(0, tileH / 2 + 0.15, 0);
+        mesh.add(pad);
+        this.colliders.jumpPads.push({
+          get x() { return mesh.position.x; },
+          get y() { return mesh.position.y + tileH / 2 + 0.3; },
+          get z() { return mesh.position.z; },
+          r: 1.5
+        });
+      }
     }
-    for (let i = 0; i < 9; i++) {
-      const line = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.04, 26), crackMat);
-      line.position.set((Math.random() - 0.5) * 26, 1.53, (Math.random() - 0.5) * 10);
-      line.rotation.y = Math.random() * Math.PI;
-      crackGroup.add(line);
-    }
-    this.currentMapGroup.add(crackGroup);
-    this.crackGroup = crackGroup;
-    this.centerBroken = true;
+
+    // HIGH VISIBILITY LIGHTING
+    const hemi = new THREE.HemisphereLight(0xffe0d0, 0x442233, 2.4);
+    const amb = new THREE.AmbientLight(0xffffff, 2.0);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 3.0);
+    dir1.position.set(30, 50, 30);
+    group.add(hemi, amb, dir1);
+
+    return [
+      new THREE.Vector3(0, 3, 0),
+      new THREE.Vector3(-4, 3, -4)
+    ];
   }
 
-  repairCenterFloor() {
-    if (!this.centerBroken) return;
-    if (this.centerFloorCollider && !this.colliders.includes(this.centerFloorCollider)) {
-      this.colliders.push(this.centerFloorCollider);
-    }
-    this.centerFloorParts.forEach((p) => { p.visible = true; });
-    if (this.crackGroup) {
-      this.currentMapGroup.remove(this.crackGroup);
-      this.crackGroup.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) o.material.dispose();
-      });
-      this.crackGroup = null;
-    }
-    this.centerBroken = false;
+  addBlackHole(group) {
+    const blackHoleGroup = new THREE.Group();
+    blackHoleGroup.position.set(0, -60, 0);
+    blackHoleGroup.add(new THREE.Mesh(new THREE.SphereGeometry(35, 32, 32), new THREE.MeshBasicMaterial({ color: 0x000000 })));
+
+    const diskGeo = new THREE.RingGeometry(38, 90, 64);
+    diskGeo.rotateX(Math.PI / 2);
+    const disk = new THREE.Mesh(diskGeo, new THREE.MeshBasicMaterial({
+      color: 0xff3355, side: THREE.DoubleSide, transparent: true, opacity: 0.7
+    }));
+    blackHoleGroup.add(disk);
+    group.add(blackHoleGroup);
+    this.animatedObjects.push({ update: (dt) => { disk.rotation.y += dt * 0.4; } });
   }
 
   // Expanding fireball from the black hole
@@ -402,8 +460,8 @@ export class MapManager {
     const mat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.9 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(0, -60, 0);
-    this.currentMapGroup.add(mesh);
     const group = this.currentMapGroup;
+    group.add(mesh);
     let t = 0;
     const obj = {
       update: (dt) => {
@@ -488,6 +546,7 @@ export class MapManager {
     const pad = new THREE.Mesh(padGeo, padMat);
     pad.position.set(x, y, z);
     parent.add(pad);
+    this.colliders.jumpPads.push({ x, y: y + 0.15, z, r: 1.5 });
   }
 
   addBoxCollider(x, y, z, w, h, d) {
