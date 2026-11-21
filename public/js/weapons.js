@@ -77,7 +77,7 @@ export const WEAPON_DEFS = {
     description: 'One clean shot through the horizon. Two shots per magazine.'
   },
   cyberpunk_horizen: {
-    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", damage: 24, fireRate: 0.1, magSize: 30, reserveAmmo: 150,
+    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", damage: 500, fireRate: 0.1, magSize: 30, reserveAmmo: 150,
     reloadTime: 1.5, bulletSpeed: 150, tracerColor: 0xff2bd6, recoilAmount: 0.04, len: 0.5, price: 0, adminOnly: true,
     description: 'Admin-only prototype forged in a forbidden build. Neon magenta plasma.'
   },
