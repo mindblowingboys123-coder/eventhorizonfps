@@ -72,20 +72,20 @@ export const WEAPON_DEFS = {
     description: 'Quiet, fast, and very accurate at close range.'
   },
   eventlance: {
-    id: 'eventlance', name: 'Event Lance', damage: 20, fireRate: 1.6, magSize: 2, reserveAmmo: 16,
+    id: 'eventlance', name: 'Event Lance', damage: 150, fireRate: 1.6, magSize: 2, reserveAmmo: 16,
     reloadTime: 2.4, bulletSpeed: 400, tracerColor: 0xff4fd8, recoilAmount: 0.22, len: 0.9, price: 2500,
     description: 'One clean shot through the horizon. Two shots per magazine.'
   },
-  horizen: {
-    id: 'horizen', name: "HORIZEN'S FINAL", damage: 50, fireRate: 10, magSize: 1, reserveAmmo: 5,
-    reloadTime: 0.1, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 0, redeemOnly: true,
-    tag: 'THE ONLY WEAPON IN THE MULTIVERSE THAT CAN KILL ANYTHING IN ONE SHOT.',
-    description: 'Forged at the edge of the event horizon. Redeem-only legendary.'
-  },
   cyberpunk_horizen: {
-    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", damage: 500, fireRate: 0.1, magSize: 30, reserveAmmo: 150,
+    id: 'cyberpunk_horizen', name: "Cyberpunk's Secret Horizen", damage: 24, fireRate: 0.1, magSize: 30, reserveAmmo: 150,
     reloadTime: 1.5, bulletSpeed: 150, tracerColor: 0xff2bd6, recoilAmount: 0.04, len: 0.5, price: 0, adminOnly: true,
     description: 'Admin-only prototype forged in a forbidden build. Neon magenta plasma.'
+  },
+  horizen: {
+    id: 'horizen', name: "HORIZEN'S FINAL", damage: 100, fireRate: 10, magSize: 10, reserveAmmo: 5,
+    reloadTime: 0.1, bulletSpeed: 500, tracerColor: 0xffffff, recoilAmount: 0.3, len: 0.9, price: 3000, redeemOnly: true,
+    tag: 'THE ONLY WEAPON IN THE MULTIVERSE THAT CAN KILL ANYTHING IN ONE SHOT.',
+    description: 'Forged at the edge of the event horizon. Redeem-only legendary.'
   }
 };
 
@@ -119,6 +119,8 @@ export class WeaponManager {
     this.lastShotTime = 0;
     this.isReloading = false;
     this.reloadProgress = 0;
+    this.aiming = false; // right mouse held
+    this.aimT = 0;       // 0 = hip fire, 1 = fully aimed
     this.recoilOffset = new THREE.Vector3();
     this.recoilRot = new THREE.Vector3();
     this.swayTime = 0;
@@ -396,6 +398,9 @@ export class WeaponManager {
   }
 
   update(delta, isMoving = false, isSprinting = false) {
+    if (this.isReloading) this.reloadProgress += delta;
+    this.aimT += ((this.aiming ? 1 : 0) - this.aimT) * Math.min(1, delta * 12);
+
     // 1. Update Tracers
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];
@@ -422,24 +427,36 @@ export class WeaponManager {
       this.recoilOffset.multiplyScalar(Math.pow(0.001, delta));
       this.recoilRot.multiplyScalar(Math.pow(0.001, delta));
 
-      // Reload animation: dip weapon down
-      let reloadY = 0;
-      if (this.isReloading) {
-        reloadY = -0.15 * Math.sin(Math.PI * (this.reloadProgress / this.getActiveWeapon().reloadTime));
-      }
-
-      const basePos = (this.currentWeaponId === 'blaster')
+      // Hip-fire position, blended toward the centred aim-down-sights position
+      const hip = (this.currentWeaponId === 'blaster')
         ? new THREE.Vector3(0.2, -0.18, -0.38)
         : (this.currentWeaponId === 'railgun'
           ? new THREE.Vector3(0.24, -0.22, -0.48)
           : new THREE.Vector3(0.22, -0.2, -0.44));
+      const ads = new THREE.Vector3(0, -0.12, hip.z + 0.04);
+      const basePos = hip.clone().lerp(ads, this.aimT);
+      const swayScale = 1 - this.aimT * 0.8;
 
-      this.activeMesh.position.x = basePos.x + bobX;
-      this.activeMesh.position.y = basePos.y + bobY + reloadY;
+      // Reload: drop the weapon, tip it toward the player and roll it, shake as the magazine swaps,
+      // then bring it back up. e is 0..1 over the reload's first and last quarters.
+      let reloadDrop = 0, reloadTilt = 0, reloadRoll = 0, magShake = 0;
+      if (this.isReloading) {
+        const p = Math.min(1, this.reloadProgress / this.getActiveWeapon().reloadTime);
+        const e = Math.max(0, Math.min(1, p / 0.25, (1 - p) / 0.2));
+        reloadDrop = -0.32 * e;
+        reloadTilt = 0.6 * e;
+        reloadRoll = -0.35 * e;
+        magShake = Math.sin(p * 90) * 0.012 * e;
+      }
+
+      this.activeMesh.position.x = basePos.x + bobX * swayScale;
+      this.activeMesh.position.y = basePos.y + bobY * swayScale + reloadDrop + magShake;
       this.activeMesh.position.z = basePos.z + this.recoilOffset.z;
 
-      this.activeMesh.rotation.x = this.recoilRot.x;
-      this.activeMesh.rotation.y = bobX * 1.5;
+      this.activeMesh.rotation.x = this.recoilRot.x + reloadTilt;
+      this.activeMesh.rotation.y = bobX * 1.5 * swayScale;
+      this.activeMesh.rotation.z = reloadRoll;
+
     }
   }
 }
