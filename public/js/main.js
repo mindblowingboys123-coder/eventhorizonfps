@@ -58,6 +58,7 @@ class EventHorizonGame {
   initThree() {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    this.baseFov = 75;
     this.camera.position.set(0, 3, 10);
     this.scene.add(this.camera);
 
@@ -318,6 +319,7 @@ class EventHorizonGame {
 
     document.getElementById('input-fov').addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
+      this.baseFov = val;
       this.camera.fov = val;
       this.camera.updateProjectionMatrix();
       document.getElementById('val-fov').innerText = val;
@@ -353,6 +355,18 @@ class EventHorizonGame {
       } else {
         this.ui.togglePauseMenu(false);
       }
+    });
+
+    // Aim down sights with right mouse (hold)
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2 && this.controls.isLocked && !this.isDead) this.weapons.aiming = true;
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.weapons.aiming = false;
+    });
+    window.addEventListener('pointer_lock_change', (e) => {
+      if (!e.detail.isLocked) this.weapons.aiming = false;
     });
 
     // Shooting with Left Click
@@ -475,6 +489,7 @@ class EventHorizonGame {
     }
 
     this.buildSelfGrantPanel();
+    this.buildScopeOverlay();
     window.addEventListener('room_state', (e) => this.onRoomState(e.detail));
 
     window.addEventListener('grants_updated', (e) => {
@@ -616,6 +631,16 @@ class EventHorizonGame {
     if (!triggeredByMe && !this.isDead) this.multiplayer.die(detail.byId, detail.by, 'Singularity Collapse');
     this.syncCataclysm();
     this.maps.playBlast();
+  }
+
+  buildScopeOverlay() {
+    const o = document.createElement('div');
+    o.style.cssText = 'position:fixed; inset:0; pointer-events:none; opacity:0; z-index:40; background:radial-gradient(circle at 50% 50%, transparent 0 28vmin, rgba(0,0,0,0.92) 29vmin);';
+    o.innerHTML = '<div style="position:absolute; left:50%; top:50%; width:58vmin; height:58vmin; margin:-29vmin 0 0 -29vmin; border:2px solid rgba(0,240,255,0.5); border-radius:50%;"></div>'
+      + '<div style="position:absolute; left:0; right:0; top:50%; height:1px; background:rgba(0,240,255,0.5);"></div>'
+      + '<div style="position:absolute; top:0; bottom:0; left:50%; width:1px; background:rgba(0,240,255,0.5);"></div>';
+    document.body.appendChild(o);
+    this.scopeOverlay = o;
   }
 
   // ---------- grants, speed, flight and abilities ----------
@@ -1113,6 +1138,16 @@ class EventHorizonGame {
       this.abilities.update(delta);
       this.weapons.fireMultiplier = this.abilities.fireMultiplier();
       this.updateAbilityHUD();
+
+      // Zoom, slower mouse and scope overlay follow how far the weapon is aimed
+      const adsT = this.weapons.aimT;
+      const zoomFov = this.baseFov * (1 - adsT * 0.45);
+      if (Math.abs(this.camera.fov - zoomFov) > 0.01) {
+        this.camera.fov = zoomFov;
+        this.camera.updateProjectionMatrix();
+      }
+      this.controls.aimMultiplier = 1 - adsT * 0.5;
+      this.scopeOverlay.style.opacity = String(Math.max(0, (adsT - 0.6) / 0.4));
 
       this.controls.update(delta);
       this.weapons.update(delta, isMoving, this.controls.isSprinting);
