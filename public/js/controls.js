@@ -83,8 +83,8 @@ export class FPSControls {
     const movementX = event.movementX || 0;
     const movementY = event.movementY || 0;
 
-    this.yaw -= movementX * this.mouseSensitivity;
-    this.pitch -= movementY * this.mouseSensitivity;
+    this.yaw -= movementX * this.mouseSensitivity * (this.aimMultiplier || 1);
+    this.pitch -= movementY * this.mouseSensitivity * (this.aimMultiplier || 1);
 
     // Clamp pitch
     this.pitch = Math.max(this.minPitch, Math.min(this.maxPitch, this.pitch));
@@ -275,6 +275,26 @@ export class FPSControls {
           landedBox = box;
         }
       }
+    }
+
+    // Walls: push the player out of any solid box they walk into from the side.
+    // Boxes under our feet or above our head are ignored; landing is handled above.
+    const feet = allowedY - this.currentHeight;
+    const head = allowedY + 0.2;
+    for (let i = 0; i < this.colliders.length; i++) {
+      const box = this.colliders[i];
+      if (box.max.y <= feet + 0.3) continue;
+      if (box.min.y >= head) continue;
+      const minX = box.min.x - playerRadius, maxX = box.max.x + playerRadius;
+      const minZ = box.min.z - playerRadius, maxZ = box.max.z + playerRadius;
+      if (allowedX <= minX || allowedX >= maxX || allowedZ <= minZ || allowedZ >= maxZ) continue;
+      const pushL = allowedX - minX, pushR = maxX - allowedX;
+      const pushB = allowedZ - minZ, pushF = maxZ - allowedZ;
+      const least = Math.min(pushL, pushR, pushB, pushF);
+      if (least === pushL) { allowedX = minX; this.velocity.x = Math.min(0, this.velocity.x); }
+      else if (least === pushR) { allowedX = maxX; this.velocity.x = Math.max(0, this.velocity.x); }
+      else if (least === pushB) { allowedZ = minZ; this.velocity.z = Math.min(0, this.velocity.z); }
+      else { allowedZ = maxZ; this.velocity.z = Math.max(0, this.velocity.z); }
     }
 
     // Fall to void reset safety check
