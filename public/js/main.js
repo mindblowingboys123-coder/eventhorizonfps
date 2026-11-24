@@ -1221,7 +1221,7 @@ class EventHorizonGame {
           this.controls.pitch,
           this.controls.yaw,
           isMoving,
-          this.controls.isCrouching
+          this.controls.isCrouching || this.controls.slideTime > 0
         );
 
         for (const pid in this.multiplayer.otherPlayers) {
