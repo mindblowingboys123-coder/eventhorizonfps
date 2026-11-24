@@ -522,8 +522,9 @@ export class MapManager {
       const hN = 10 + ((i * 7) % 5) * 4;
       const hS = 10 + ((i * 3 + 2) % 5) * 4;
       // North bank: door faces +z (toward the river). South bank: door faces -z.
-      this.buildHaloBuilding(group, x, -34, +1, hN, wallMat, neonMat, roofMat);
-      this.buildHaloBuilding(group, x, 34, -1, hS, wallMat, neonMat, roofMat);
+      // Each building gets one of three staircase styles, so no two look the same
+      this.buildHaloBuilding(group, x, -34, +1, hN, wallMat, neonMat, roofMat, i);
+      this.buildHaloBuilding(group, x, 34, -1, hS, wallMat, neonMat, roofMat, i + 1);
     });
 
     // Jump pads: one in front of every building door, plus two on the banks
@@ -558,7 +559,7 @@ export class MapManager {
   // A hollow 16x14 building with a 4-wide doorway in its front wall. facing = +1 or -1
   // is the direction the door faces (along z). Walls, lintel and roof are all solid colliders,
   // so you walk in through the door and the side walls keep you inside.
-  buildHaloBuilding(group, x, z, facing, h, wallMat, neonMat, roofMat) {
+  buildHaloBuilding(group, x, z, facing, h, wallMat, neonMat, roofMat, style = 0) {
     const w = 16, d = 14, t = 0.8, doorW = 4;
     const hw = w / 2, hd = d / 2;
     const frontZ = z + facing * (hd - t / 2);
@@ -584,6 +585,47 @@ export class MapManager {
     const strip = new THREE.Mesh(new THREE.BoxGeometry(w - 3, 0.3, 0.1), neonMat);
     strip.position.set(x, 3.5, backZ + facing * (t / 2 + 0.06));
     group.add(strip);
+
+    this.buildHaloStairs(group, x, z, facing, h + 0.6, style);
+  }
+
+  // Stairs from the ground up to the roof (topY). Three styles:
+  //   0: narrow run straight out from the back wall, purple
+  //   1: wide run straight out from the back wall, cyan
+  //   2: narrow run in the alley beside the building, orange
+  // Each step is 1 unit deep and rises by at most 0.6, so the controller can walk up them.
+  buildHaloStairs(group, x, z, f, topY, style) {
+    const hd = 7;        // half the building depth
+    const tread = 1.0;   // depth of one step
+    const n = Math.ceil(topY / 0.6);
+    const rise = topY / n;
+    const frontFace = z + f * hd;
+    const backFace = z - f * hd;
+
+    const styles = [
+      { width: 3, color: 0x9d4edd, alley: false },
+      { width: 6, color: 0x00f0ff, alley: false },
+      { width: 2.5, color: 0xff6b35, alley: true }
+    ];
+    const s = styles[((style % 3) + 3) % 3];
+    const stepMat = new THREE.MeshStandardMaterial({
+      color: s.color, emissive: s.color, emissiveIntensity: 0.25, roughness: 0.5, metalness: 0.4
+    });
+
+    // The run goes from low (far out) to high (at the building). The top step touches the
+    // roof: the back wall for back runs, the side wall for alley runs.
+    const cx = s.alley ? x + 8 + s.width / 2 : x;
+    const edgeZ = s.alley ? frontFace : backFace;
+    const startZ = edgeZ - f * n * tread;
+
+    for (let k = 0; k < n; k++) {
+      const top = (k + 1) * rise;
+      const zc = startZ + f * (k + 0.5) * tread;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(s.width, top, tread), stepMat);
+      mesh.position.set(cx, top / 2, zc);
+      group.add(mesh);
+      this.addBoxCollider(cx, top / 2, zc, s.width, top, tread);
+    }
   }
 
   // Helper creation methods
