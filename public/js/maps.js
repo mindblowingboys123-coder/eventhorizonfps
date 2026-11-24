@@ -31,6 +31,9 @@ export class MapManager {
       case 'mars':
         spawnPoints = this.buildMarsOutpost(mapGroup);
         break;
+      case 'halo':
+        spawnPoints = this.buildHaloCity(mapGroup);
+        break;
       case 'shattered':
         spawnPoints = this.buildShatteredFloor(mapGroup);
         break;
@@ -43,6 +46,7 @@ export class MapManager {
         break;
     }
 
+    this.currentSpawns = spawnPoints;
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
 
@@ -480,6 +484,70 @@ export class MapManager {
     this.animatedObjects.push(obj);
   }
 
+  // ========================================================
+  // 6. HALO CITY (buildings on both banks, a shallow river through the middle)
+  // ========================================================
+  buildHaloCity(group) {
+    this.addStarfield(group, 1500, 0xc8b8ff);
+
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a3f55, roughness: 0.8, metalness: 0.1 });
+    const bedMat = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.9 });
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x4b5573, roughness: 0.6, metalness: 0.4 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a3146, roughness: 0.5, metalness: 0.5 });
+    const neonMat = new THREE.MeshBasicMaterial({ color: 0x9d4edd });
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x1d6fb8, transparent: true, opacity: 0.7, roughness: 0.2, metalness: 0.1 });
+
+    // Banks: solid ground on both sides of the river
+    this.createPlatform(group, 0, -0.5, -65, 240, 1, 110, groundMat);
+    this.createPlatform(group, 0, -0.5, 65, 240, 1, 110, groundMat);
+
+    // River: a shallow channel between the banks that you can wade through
+    this.createPlatform(group, 0, -0.375, 0, 240, 0.25, 20, bedMat);
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(240, 20), waterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -0.15, 0);
+    group.add(water);
+    // Wading volume: controls.js slows the player inside it
+    this.colliders.water = [new THREE.Box3(new THREE.Vector3(-120, -0.5, -10), new THREE.Vector3(120, -0.1, 10))];
+
+    // Two low bridges across the river (deck top is flush with the banks, so you walk onto them)
+    this.createPlatform(group, -30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
+    this.createPlatform(group, 30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
+
+    // Buildings along both banks; their rooftops can be climbed onto
+    const xs = [-90, -70, -50, -30, -10, 10, 30, 50, 70, 90];
+    xs.forEach((x, i) => {
+      const hN = 10 + ((i * 7) % 5) * 4;
+      const hS = 10 + ((i * 3 + 2) % 5) * 4;
+      this.createPlatform(group, x, hN / 2, -34, 16, hN, 14, wallMat, neonMat);
+      this.createPlatform(group, x, hS / 2, 34, 16, hS, 14, wallMat, neonMat);
+    });
+
+    // Jump pads on the banks
+    this.createJumpPad(group, -60, 0.15, -18, 0x9d4edd);
+    this.createJumpPad(group, 60, 0.15, 18, 0x9d4edd);
+
+    // A ring of light high above the city
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(260, 5, 16, 160), new THREE.MeshBasicMaterial({ color: 0x9d4edd }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(0, 150, 0);
+    group.add(ring);
+
+    // HIGH VISIBILITY LIGHTING
+    const hemi = new THREE.HemisphereLight(0xc8b8ff, 0x332244, 2.4);
+    const amb = new THREE.AmbientLight(0xffffff, 1.8);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 3.0);
+    dir1.position.set(30, 50, 30);
+    group.add(hemi, amb, dir1);
+
+    return [
+      new THREE.Vector3(-100, 2, -60),
+      new THREE.Vector3(100, 2, 60),
+      new THREE.Vector3(-100, 2, 60),
+      new THREE.Vector3(100, 2, -60)
+    ];
+  }
+
   // Helper creation methods
   createPlatform(parent, x, y, z, w, h, d, mat, trimMat) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -580,4 +648,18 @@ export class MapManager {
     }
     this.animatedObjects = this.animatedObjects.filter((o) => !o.done);
   }
+}
+
+// Random spawn that is as far as possible from living pilots, so nobody can wait next to a spawn.
+// Picks at random among the safest half of the spawn points, so it is not predictable.
+export function pickSafeSpawn(spawns, foePositions, random = Math.random) {
+  if (!spawns || spawns.length === 0) return { x: 0, y: 4, z: 0 };
+  const scored = spawns.map((s) => {
+    let nearest = Infinity;
+    for (const f of foePositions) nearest = Math.min(nearest, Math.hypot(f.x - s.x, f.z - s.z));
+    return { s, nearest };
+  });
+  scored.sort((a, b) => b.nearest - a.nearest);
+  const pool = scored.slice(0, Math.max(1, Math.ceil(scored.length / 2)));
+  return pool[Math.floor(random() * pool.length)].s;
 }
