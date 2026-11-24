@@ -7,7 +7,6 @@ export class MapManager {
     this.currentMapGroup = null;
     this.colliders = [];
     this.animatedObjects = [];
-    this.jumpPads = [];
     this.currentMapId = 'singularity';
   }
 
@@ -18,7 +17,7 @@ export class MapManager {
       this.currentMapGroup = null;
     }
     this.colliders = [];
-    this.jumpPads = [];
+    this.colliders.jumpPads = [];
     this.animatedObjects = [];
     this.currentMapId = mapId;
 
@@ -32,6 +31,12 @@ export class MapManager {
       case 'mars':
         spawnPoints = this.buildMarsOutpost(mapGroup);
         break;
+      case 'halo':
+        spawnPoints = this.buildHaloCity(mapGroup);
+        break;
+      case 'shattered':
+        spawnPoints = this.buildShatteredFloor(mapGroup);
+        break;
       case 'cyber':
         spawnPoints = this.buildCyberVoid(mapGroup);
         break;
@@ -41,9 +46,7 @@ export class MapManager {
         break;
     }
 
-    // Hand jump pads to the controls through the colliders array
-    this.colliders.jumpPads = this.jumpPads;
-
+    this.currentSpawns = spawnPoints;
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
 
@@ -132,8 +135,8 @@ export class MapManager {
     // 4 Satellite Outer Platforms
     this.createPlatform(group, 45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
     this.createPlatform(group, -45, 5, 0, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 7, 45, 22, 2.5, 22, platformMat, metalTrimMat);
-    this.createPlatform(group, 0, 7, -45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 8, 45, 22, 2.5, 22, platformMat, metalTrimMat);
+    this.createPlatform(group, 0, 8, -45, 22, 2.5, 22, platformMat, metalTrimMat);
 
     // Glowing Holographic Bridges connecting center to outer platforms
     this.createBridge(group, 27, 2.5, 0, 18, 0.2, 6, energyBridgeMat);
@@ -345,6 +348,206 @@ export class MapManager {
     ];
   }
 
+  // ========================================================
+  // 5. SHATTERED FLOOR (SINGULARITY COLLAPSE MAP)
+  // ========================================================
+  buildShatteredFloor(group) {
+    this.addStarfield(group, 2500, 0xffb3a0);
+    this.addBlackHole(group);
+
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x3b2a3d, roughness: 0.7, metalness: 0.3 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0xff3355 });
+    const padColor = 0xffb3a0;
+
+    // Static core island in the middle, with two jump pads
+    this.createPlatform(group, 0, 0, 0, 12, 3, 12, slabMat, glowMat);
+    this.createJumpPad(group, 4, 1.66, 4, padColor);
+    this.createJumpPad(group, -4, 1.66, -4, padColor);
+
+    // Shattered pieces of floor that orbit the core and bob up and down
+    const TILE_COUNT = 10;
+    const tileH = 1.2;
+    for (let i = 0; i < TILE_COUNT; i++) {
+      const w = 6 + (i % 3) * 1.5;
+      const d = 5 + (i % 2) * 2;
+      const size = new THREE.Vector3(w, tileH, d);
+
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, tileH, d), slabMat);
+      group.add(mesh);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.12, d + 0.2), glowMat);
+      edge.position.set(0, tileH / 2 + 0.02, 0);
+      mesh.add(edge);
+
+      // Three orbit rings; the inner ring is the one with jump pads
+      const ring = i % 3;
+      const radius = 16 + ring * 8;
+      const dir = i % 2 ? 1 : -1;
+      const state = { angle: (i / TILE_COUNT) * Math.PI * 2, t: i * 0.7 };
+      const speed = dir * (3 / radius);            // about 3 units per second around the orbit
+      const baseY = 4 + ring * 2.5;
+      const bob = 1.2 + (i % 2) * 0.6;
+      const place = (s) => new THREE.Vector3(
+        Math.cos(s.angle) * radius,
+        baseY + Math.sin(s.t * 0.6) * bob,
+        Math.sin(s.angle) * radius
+      );
+
+      mesh.position.copy(place(state));
+      const box = new THREE.Box3();
+      box.setFromCenterAndSize(mesh.position, size);
+      box.userData = { delta: { x: 0, y: 0, z: 0 } };
+      this.colliders.push(box);
+
+      const prev = mesh.position.clone();
+      this.animatedObjects.push({
+        update: (dt) => {
+          state.angle += speed * dt;
+          state.t += dt;
+          mesh.position.copy(place(state));
+          box.setFromCenterAndSize(mesh.position, size);
+          // How far the tile moved this frame, so the controller can carry a player standing on it
+          box.userData.delta = {
+            x: mesh.position.x - prev.x,
+            y: mesh.position.y - prev.y,
+            z: mesh.position.z - prev.z
+          };
+          prev.copy(mesh.position);
+        }
+      });
+
+      // Some tiles carry a jump pad that moves with them
+      if (ring === 0) {
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.8, 0.3, 16), new THREE.MeshBasicMaterial({ color: padColor }));
+        pad.position.set(0, tileH / 2 + 0.16, 0);
+        mesh.add(pad);
+        this.colliders.jumpPads.push({
+          get x() { return mesh.position.x; },
+          get y() { return mesh.position.y + tileH / 2 + 0.31; },
+          get z() { return mesh.position.z; },
+          r: 1.5
+        });
+      }
+    }
+
+    // HIGH VISIBILITY LIGHTING
+    const hemi = new THREE.HemisphereLight(0xffe0d0, 0x442233, 2.4);
+    const amb = new THREE.AmbientLight(0xffffff, 2.0);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 3.0);
+    dir1.position.set(30, 50, 30);
+    group.add(hemi, amb, dir1);
+
+    return [
+      new THREE.Vector3(0, 3, 0),
+      new THREE.Vector3(-4, 3, -4)
+    ];
+  }
+
+  addBlackHole(group) {
+    const blackHoleGroup = new THREE.Group();
+    blackHoleGroup.position.set(0, -60, 0);
+    blackHoleGroup.add(new THREE.Mesh(new THREE.SphereGeometry(35, 32, 32), new THREE.MeshBasicMaterial({ color: 0x000000 })));
+
+    const diskGeo = new THREE.RingGeometry(38, 90, 64);
+    diskGeo.rotateX(Math.PI / 2);
+    const disk = new THREE.Mesh(diskGeo, new THREE.MeshBasicMaterial({
+      color: 0xff3355, side: THREE.DoubleSide, transparent: true, opacity: 0.7
+    }));
+    blackHoleGroup.add(disk);
+    group.add(blackHoleGroup);
+    this.animatedObjects.push({ update: (dt) => { disk.rotation.y += dt * 0.4; } });
+  }
+
+  // Expanding fireball from the black hole
+  playBlast() {
+    if (!this.currentMapGroup) return;
+    const geo = new THREE.SphereGeometry(1, 24, 24);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.9 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, -60, 0);
+    const group = this.currentMapGroup;
+    group.add(mesh);
+    let t = 0;
+    const obj = {
+      update: (dt) => {
+        t += dt;
+        const k = Math.min(1, t / 1.6);
+        mesh.scale.setScalar(1 + k * 130);
+        mat.opacity = 0.9 * (1 - k);
+        if (k >= 1) {
+          group.remove(mesh);
+          geo.dispose();
+          mat.dispose();
+          obj.done = true;
+        }
+      }
+    };
+    this.animatedObjects.push(obj);
+  }
+
+  // ========================================================
+  // 6. HALO CITY (buildings on both banks, a shallow river through the middle)
+  // ========================================================
+  buildHaloCity(group) {
+    this.addStarfield(group, 1500, 0xc8b8ff);
+
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a3f55, roughness: 0.8, metalness: 0.1 });
+    const bedMat = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.9 });
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x4b5573, roughness: 0.6, metalness: 0.4 });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a3146, roughness: 0.5, metalness: 0.5 });
+    const neonMat = new THREE.MeshBasicMaterial({ color: 0x9d4edd });
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x1d6fb8, transparent: true, opacity: 0.7, roughness: 0.2, metalness: 0.1 });
+
+    // Banks: solid ground on both sides of the river
+    this.createPlatform(group, 0, -0.5, -65, 240, 1, 110, groundMat);
+    this.createPlatform(group, 0, -0.5, 65, 240, 1, 110, groundMat);
+
+    // River: a shallow channel between the banks that you can wade through
+    this.createPlatform(group, 0, -0.375, 0, 240, 0.25, 20, bedMat);
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(240, 20), waterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -0.15, 0);
+    group.add(water);
+    // Wading volume: controls.js slows the player inside it
+    this.colliders.water = [new THREE.Box3(new THREE.Vector3(-120, -0.5, -10), new THREE.Vector3(120, -0.1, 10))];
+
+    // Two low bridges across the river (deck top is flush with the banks, so you walk onto them)
+    this.createPlatform(group, -30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
+    this.createPlatform(group, 30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
+
+    // Buildings along both banks; their rooftops can be climbed onto
+    const xs = [-90, -70, -50, -30, -10, 10, 30, 50, 70, 90];
+    xs.forEach((x, i) => {
+      const hN = 10 + ((i * 7) % 5) * 4;
+      const hS = 10 + ((i * 3 + 2) % 5) * 4;
+      this.createPlatform(group, x, hN / 2, -34, 16, hN, 14, wallMat, neonMat);
+      this.createPlatform(group, x, hS / 2, 34, 16, hS, 14, wallMat, neonMat);
+    });
+
+    // Jump pads on the banks
+    this.createJumpPad(group, -60, 0.15, -18, 0x9d4edd);
+    this.createJumpPad(group, 60, 0.15, 18, 0x9d4edd);
+
+    // A ring of light high above the city
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(260, 5, 16, 160), new THREE.MeshBasicMaterial({ color: 0x9d4edd }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.set(0, 150, 0);
+    group.add(ring);
+
+    // HIGH VISIBILITY LIGHTING
+    const hemi = new THREE.HemisphereLight(0xc8b8ff, 0x332244, 2.4);
+    const amb = new THREE.AmbientLight(0xffffff, 1.8);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 3.0);
+    dir1.position.set(30, 50, 30);
+    group.add(hemi, amb, dir1);
+
+    return [
+      new THREE.Vector3(-100, 2, -60),
+      new THREE.Vector3(100, 2, 60),
+      new THREE.Vector3(-100, 2, 60),
+      new THREE.Vector3(100, 2, -60)
+    ];
+  }
+
   // Helper creation methods
   createPlatform(parent, x, y, z, w, h, d, mat, trimMat) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -353,7 +556,7 @@ export class MapManager {
 
     if (trimMat) {
       const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.4, d + 0.2), trimMat);
-      trim.position.set(x, y + h / 2 - 0.3, z);
+      trim.position.set(x, y + h / 2 - 0.15, z);
       parent.add(trim);
     }
 
@@ -411,7 +614,7 @@ export class MapManager {
     const pad = new THREE.Mesh(padGeo, padMat);
     pad.position.set(x, y, z);
     parent.add(pad);
-    this.jumpPads.push({ x, y, z, r: 1.9 });
+    this.colliders.jumpPads.push({ x, y: y + 0.15, z, r: 1.5 });
   }
 
   addBoxCollider(x, y, z, w, h, d) {
@@ -443,5 +646,20 @@ export class MapManager {
     for (let i = 0; i < this.animatedObjects.length; i++) {
       this.animatedObjects[i].update(delta);
     }
+    this.animatedObjects = this.animatedObjects.filter((o) => !o.done);
   }
+}
+
+// Random spawn that is as far as possible from living pilots, so nobody can wait next to a spawn.
+// Picks at random among the safest half of the spawn points, so it is not predictable.
+export function pickSafeSpawn(spawns, foePositions, random = Math.random) {
+  if (!spawns || spawns.length === 0) return { x: 0, y: 4, z: 0 };
+  const scored = spawns.map((s) => {
+    let nearest = Infinity;
+    for (const f of foePositions) nearest = Math.min(nearest, Math.hypot(f.x - s.x, f.z - s.z));
+    return { s, nearest };
+  });
+  scored.sort((a, b) => b.nearest - a.nearest);
+  const pool = scored.slice(0, Math.max(1, Math.ceil(scored.length / 2)));
+  return pool[Math.floor(random() * pool.length)].s;
 }
