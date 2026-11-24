@@ -633,6 +633,29 @@ class EventHorizonGame {
     this.maps.playBlast();
   }
 
+  // Draws the grappling hook's line from the hand to its anchor (local to this player)
+  updateRope() {
+    const g = this.controls.grapple;
+    if (!g) {
+      if (this.ropeLine) this.ropeLine.visible = false;
+      return;
+    }
+    if (!this.ropeLine) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      this.ropeLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x00f0ff }));
+      this.ropeLine.frustumCulled = false;
+      this.scene.add(this.ropeLine);
+    }
+    const anchor = g.box.min.clone().add(g.offset);
+    const hand = this.camera.localToWorld(new THREE.Vector3(0.2, -0.15, -0.5));
+    const pos = this.ropeLine.geometry.attributes.position;
+    pos.setXYZ(0, hand.x, hand.y, hand.z);
+    pos.setXYZ(1, anchor.x, anchor.y, anchor.z);
+    pos.needsUpdate = true;
+    this.ropeLine.visible = true;
+  }
+
   buildScopeOverlay() {
     const o = document.createElement('div');
     o.style.cssText = 'position:fixed; inset:0; pointer-events:none; opacity:0; z-index:40; background:radial-gradient(circle at 50% 50%, transparent 0 28vmin, rgba(0,0,0,0.92) 29vmin);';
@@ -1138,6 +1161,8 @@ class EventHorizonGame {
       this.abilities.update(delta);
       this.weapons.fireMultiplier = this.abilities.fireMultiplier();
       this.updateAbilityHUD();
+
+      this.updateRope();
 
       // Zoom, slower mouse and scope overlay follow how far the weapon is aimed
       const adsT = this.weapons.aimT;
