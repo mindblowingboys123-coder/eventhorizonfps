@@ -4,6 +4,7 @@ import * as THREE from 'three';
 const GRAPPLE_RANGE = 70;  // how far the hook reaches
 const GRAPPLE_PULL = 60;    // top pull speed toward the anchor
 const GRAPPLE_STOP = 2.2;   // release distance: close enough to land or touch the wall
+const STEP_UP_HEIGHT = 0.65; // the tallest step you can walk up without jumping (stairs)
 
 export class FPSControls {
   constructor(camera, domElement, soundEngine, authManager = null) {
@@ -245,6 +246,14 @@ export class FPSControls {
     if (level > 0) baseSpeed *= speedMultipliers[level];
     else if (this.auth && this.auth.profile && this.auth.profile.superSpeed) baseSpeed *= 2.5;
 
+    // Wading through the river slows you down
+    const feetY = this.camera.position.y - this.currentHeight;
+    const inWater = (this.colliders.water || []).some((w) =>
+      this.camera.position.x > w.min.x && this.camera.position.x < w.max.x &&
+      this.camera.position.z > w.min.z && this.camera.position.z < w.max.z &&
+      feetY > w.min.y - 0.1 && feetY < w.max.y + 0.5);
+    if (inWater) baseSpeed *= 0.55;
+
     // Movement direction from input
     this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
     this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
@@ -306,7 +315,7 @@ export class FPSControls {
 
     // Walls: push the player out of any solid box they walk into from the side.
     // Boxes under our feet or above our head are ignored; landing is handled above.
-    const feet = allowedY - this.currentHeight;
+    let feet = allowedY - this.currentHeight;
     const head = allowedY + 0.2;
     for (let i = 0; i < this.colliders.length; i++) {
       const box = this.colliders[i];
@@ -315,6 +324,15 @@ export class FPSControls {
       const minX = box.min.x - playerRadius, maxX = box.max.x + playerRadius;
       const minZ = box.min.z - playerRadius, maxZ = box.max.z + playerRadius;
       if (allowedX <= minX || allowedX >= maxX || allowedZ <= minZ || allowedZ >= maxZ) continue;
+      // Stairs: a low step that we are walking into is stepped onto, not bumped into
+      if (this.canJump && box.max.y - feet <= STEP_UP_HEIGHT && box.max.y - feet > 0.3 && this.velocity.y <= 0) {
+        allowedY = box.max.y + this.currentHeight;
+        feet = box.max.y;
+        this.velocity.y = 0;
+        onGround = true;
+        landedBox = box;
+        continue;
+      }
       const pushL = allowedX - minX, pushR = maxX - allowedX;
       const pushB = allowedZ - minZ, pushF = maxZ - allowedZ;
       const least = Math.min(pushL, pushR, pushB, pushF);
