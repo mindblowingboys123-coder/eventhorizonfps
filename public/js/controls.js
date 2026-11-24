@@ -1,6 +1,10 @@
 // EVENT HORIZON - 3D FIRST-PERSON CONTROLLER
 import * as THREE from 'three';
 
+const GRAPPLE_RANGE = 70;  // how far the hook reaches
+const GRAPPLE_PULL = 60;    // top pull speed toward the anchor
+const GRAPPLE_STOP = 2.2;   // release distance: close enough to land or touch the wall
+
 export class FPSControls {
   constructor(camera, domElement, soundEngine, authManager = null) {
     this.camera = camera;
@@ -45,6 +49,10 @@ export class FPSControls {
     this.grants = { speedLevel: 0, fly: false };
     this.voidRespawn = null; // where falling into the void puts you (set by main.js)
     this.flyUp = false;
+
+    // Grappling hook (hold F): anchored to a box, which may move
+    this.grapple = null;
+    this.grappleCooldown = 0;
 
     // Key event listeners
     this.onKeyDown = this.handleKeyDown.bind(this);
@@ -124,6 +132,9 @@ export class FPSControls {
       case 'ShiftRight':
         this.isSprinting = true;
         break;
+      case 'KeyF':
+        this.fireGrapple();
+        break;
       case 'KeyC':
         this.isCrouching = true;
         break;
@@ -154,6 +165,9 @@ export class FPSControls {
         break;
       case 'Space':
         this.flyUp = false;
+        break;
+      case 'KeyF':
+        this.releaseGrapple();
         break;
       case 'KeyC':
         this.isCrouching = false;
@@ -192,6 +206,19 @@ export class FPSControls {
       this.camera.position.x += d.x;
       this.camera.position.y += d.y;
       this.camera.position.z += d.z;
+    }
+
+    // Grappling hook: pull toward the anchor and let go when we arrive
+    this.grappleCooldown = Math.max(0, this.grappleCooldown - delta);
+    if (this.grapple) {
+      const target = this.grapple.box.min.clone().add(this.grapple.offset);
+      const toTarget = target.clone().sub(this.camera.position);
+      const dist = toTarget.length();
+      if (dist < GRAPPLE_STOP) {
+        this.releaseGrapple();
+      } else {
+        this.velocity.copy(toTarget.multiplyScalar(1 / dist)).multiplyScalar(Math.min(GRAPPLE_PULL, 20 + dist * 2));
+      }
     }
 
     // Jump pads: launch the player high into the air
@@ -318,6 +345,33 @@ export class FPSControls {
     this.camera.position.z = allowedZ;
   }
 
+  // ---------- grappling hook ----------
+
+  fireGrapple() {
+    if (!this.isLocked || this.grapple || this.grappleCooldown > 0) return;
+    const ray = new THREE.Ray(this.camera.position.clone(), this.getForwardDirection());
+    const hit = new THREE.Vector3();
+    let best = null;
+    let bestDist = GRAPPLE_RANGE;
+    for (const box of this.colliders) {
+      if (!ray.intersectBox(box, hit)) continue;
+      const d = ray.origin.distanceTo(hit);
+      if (d > 1 && d < bestDist) {
+        bestDist = d;
+        best = { box, point: hit.clone() };
+      }
+    }
+    if (!best) return;
+    // Remember the anchor relative to its box, so it moves with moving platforms
+    this.grapple = { box: best.box, offset: best.point.clone().sub(best.box.min) };
+    if (this.sound && this.sound.playJump) this.sound.playJump();
+  }
+
+  releaseGrapple() {
+    if (this.grapple) this.grappleCooldown = 0.4;
+    this.grapple = null;
+  }
+
   getPosition() {
     return this.camera.position;
   }
@@ -325,6 +379,7 @@ export class FPSControls {
   setPosition(x, y, z) {
     this.camera.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
+    this.grapple = null;
   }
 
   getForwardDirection() {
