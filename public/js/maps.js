@@ -514,16 +514,23 @@ export class MapManager {
     this.createPlatform(group, -30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
     this.createPlatform(group, 30, 0, 0, 6, 0.5, 24, deckMat, neonMat);
 
-    // Buildings along both banks; their rooftops can be climbed onto
+    // Buildings along both banks. Each one is hollow with a doorway facing the river,
+    // so you can walk inside. Its roof can be climbed onto.
     const xs = [-90, -70, -50, -30, -10, 10, 30, 50, 70, 90];
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x1f2637, roughness: 0.7, metalness: 0.3 });
     xs.forEach((x, i) => {
       const hN = 10 + ((i * 7) % 5) * 4;
       const hS = 10 + ((i * 3 + 2) % 5) * 4;
-      this.createPlatform(group, x, hN / 2, -34, 16, hN, 14, wallMat, neonMat);
-      this.createPlatform(group, x, hS / 2, 34, 16, hS, 14, wallMat, neonMat);
+      // North bank: door faces +z (toward the river). South bank: door faces -z.
+      this.buildHaloBuilding(group, x, -34, +1, hN, wallMat, neonMat, roofMat);
+      this.buildHaloBuilding(group, x, 34, -1, hS, wallMat, neonMat, roofMat);
     });
 
-    // Jump pads on the banks
+    // Jump pads: one in front of every building door, plus two on the banks
+    xs.forEach((x) => {
+      this.createJumpPad(group, x, 0.15, -24, 0x9d4edd);
+      this.createJumpPad(group, x, 0.15, 24, 0x9d4edd);
+    });
     this.createJumpPad(group, -60, 0.15, -18, 0x9d4edd);
     this.createJumpPad(group, 60, 0.15, 18, 0x9d4edd);
 
@@ -546,6 +553,37 @@ export class MapManager {
       new THREE.Vector3(-100, 2, 60),
       new THREE.Vector3(100, 2, -60)
     ];
+  }
+
+  // A hollow 16x14 building with a 4-wide doorway in its front wall. facing = +1 or -1
+  // is the direction the door faces (along z). Walls, lintel and roof are all solid colliders,
+  // so you walk in through the door and the side walls keep you inside.
+  buildHaloBuilding(group, x, z, facing, h, wallMat, neonMat, roofMat) {
+    const w = 16, d = 14, t = 0.8, doorW = 4;
+    const hw = w / 2, hd = d / 2;
+    const frontZ = z + facing * (hd - t / 2);
+    const backZ = z - facing * (hd - t / 2);
+
+    // Back wall and both side walls
+    this.createWall(group, x, h / 2, backZ, w, h, t, wallMat);
+    this.createWall(group, x - hw + t / 2, h / 2, z, t, h, d, wallMat);
+    this.createWall(group, x + hw - t / 2, h / 2, z, t, h, d, wallMat);
+
+    // Front wall, split around the doorway
+    const pieceW = (w - doorW) / 2;
+    const pieceX = doorW / 2 + pieceW / 2;
+    this.createWall(group, x - pieceX, h / 2, frontZ, pieceW, h, t, wallMat);
+    this.createWall(group, x + pieceX, h / 2, frontZ, pieceW, h, t, wallMat);
+    // Lintel above the doorway (the top 2 units of the front wall)
+    this.createWall(group, x, h - 1, frontZ, doorW, 2, t, wallMat);
+
+    // Roof: solid, you can stand on it
+    this.createWall(group, x, h + 0.3, z, w, 0.6, d, roofMat);
+
+    // Neon strip on the inside of the back wall, so the interior is readable
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(w - 3, 0.3, 0.1), neonMat);
+    strip.position.set(x, 3.5, backZ + facing * (t / 2 + 0.06));
+    group.add(strip);
   }
 
   // Helper creation methods
