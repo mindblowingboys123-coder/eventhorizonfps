@@ -5,7 +5,7 @@ import { SoundEngine } from './audio.js';
 import { FPSControls } from './controls.js';
 import { WeaponManager } from './weapons.js';
 import { SkinManager } from './skins.js';
-import { MapManager } from './maps.js';
+import { MapManager, pickSafeSpawn } from './maps.js';
 import { EnemyManager } from './enemies.js';
 import { StoryCampaign } from './story.js';
 import { MultiplayerClient } from './multiplayer.js';
@@ -97,7 +97,8 @@ class EventHorizonGame {
     this.enemies = new EnemyManager(this.scene, this.sound);
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
-    this.multiplayer.isInvincible = () => !!(this.auth && this.auth.profile && this.auth.profile.godMode);
+    this.multiplayer.isInvincible = () => !!(this.auth && this.auth.profile && this.auth.profile.godMode)
+      || performance.now() < (this.spawnShieldUntil || 0);
     this.applyGrants();
 
     // Load initial menu backdrop map (The Singularity Core)
@@ -964,6 +965,7 @@ class EventHorizonGame {
     if (roomId === 'aegis-station') mapId = 'station';
     if (roomId === 'mars-outpost') mapId = 'mars';
     if (roomId === 'cyber-void') mapId = 'cyber';
+    if (roomId === 'halo-city') mapId = 'halo';
 
     const mapData = this.maps.loadMap(mapId);
     this.controls.setColliders(mapData.colliders);
@@ -1035,6 +1037,11 @@ class EventHorizonGame {
     }
   }
 
+  pickRespawnPoint() {
+    const foes = this.multiplayer.getRemotePlayerMeshes().map((p) => p.mesh.position);
+    return pickSafeSpawn(this.maps.currentSpawns, foes);
+  }
+
   handlePlayerDeath(killer) {
     if (this.isDead) return;
     this.isDead = true;
@@ -1049,8 +1056,12 @@ class EventHorizonGame {
         this.multiplayer.sendRespawn();
       }
       this.resetVitals();
-      const sp = this.controls.voidRespawn || { x: 0, y: 4, z: 0 };
+      const inMatch = this.gameState === 'MULTIPLAYER';
+      const sp = inMatch
+        ? this.pickRespawnPoint()
+        : (this.controls.voidRespawn || { x: 0, y: 4, z: 0 });
       this.controls.setPosition(sp.x, sp.y, sp.z);
+      if (inMatch) this.spawnShieldUntil = performance.now() + 2500;
     }, 2500);
   }
 
