@@ -5,6 +5,10 @@ const GRAPPLE_RANGE = 70;  // how far the hook reaches
 const GRAPPLE_PULL = 60;    // top pull speed toward the anchor
 const GRAPPLE_STOP = 2.2;   // release distance: close enough to land or touch the wall
 const STEP_UP_HEIGHT = 0.65; // the tallest step you can walk up without jumping (stairs)
+const SLIDE_TIME = 0.7;      // how long a dash / slide lasts (seconds)
+const SLIDE_SPEED_START = 30; // dash speed at the start of the slide
+const SLIDE_SPEED_END = 8;    // speed the slide fades to
+const SLIDE_COOLDOWN = 1.0;   // seconds before you can dash again
 
 export class FPSControls {
   constructor(camera, domElement, soundEngine, authManager = null) {
@@ -54,6 +58,11 @@ export class FPSControls {
     // Grappling hook (hold F): anchored to a box, which may move
     this.grapple = null;
     this.grappleCooldown = 0;
+
+    // Dash / slide (press C on the ground)
+    this.slideTime = 0;
+    this.slideCooldown = 0;
+    this.slideDir = { x: 0, z: 0 };
 
     // Key event listeners
     this.onKeyDown = this.handleKeyDown.bind(this);
@@ -138,6 +147,7 @@ export class FPSControls {
         break;
       case 'KeyC':
         this.isCrouching = true;
+        if (!event.repeat) this.startSlide();
         break;
     }
   }
@@ -184,7 +194,7 @@ export class FPSControls {
     if (!this.isLocked) return;
 
     // Crouch height interpolation
-    const targetHeight = this.isCrouching ? this.crouchHeight : this.playerHeight;
+    const targetHeight = (this.isCrouching || this.slideTime > 0) ? this.crouchHeight : this.playerHeight;
     this.currentHeight += (targetHeight - this.currentHeight) * Math.min(1, delta * 12);
 
     // Friction / damping
@@ -237,6 +247,16 @@ export class FPSControls {
       }
     }
 
+    // Dash / slide: hold the dash speed in the slide direction, fading out, and skip steering
+    this.slideCooldown = Math.max(0, this.slideCooldown - delta);
+    if (this.slideTime > 0) {
+      this.slideTime = Math.max(0, this.slideTime - delta);
+      const k = this.slideTime / SLIDE_TIME;
+      const sp = SLIDE_SPEED_END + (SLIDE_SPEED_START - SLIDE_SPEED_END) * k;
+      this.velocity.x = this.slideDir.x * sp;
+      this.velocity.z = this.slideDir.z * sp;
+    }
+
     // Determine speed
     let baseSpeed = 48.0;
     if (this.isSprinting && !this.isCrouching) baseSpeed = 85.0;
@@ -260,11 +280,11 @@ export class FPSControls {
     this.direction.normalize();
 
     // Transform direction by camera yaw (horizontal only)
-    if (this.moveForward || this.moveBackward) {
+    if (this.slideTime <= 0 && (this.moveForward || this.moveBackward)) {
       this.velocity.z -= Math.cos(this.yaw) * this.direction.z * baseSpeed * delta;
       this.velocity.x -= Math.sin(this.yaw) * this.direction.z * baseSpeed * delta;
     }
-    if (this.moveLeft || this.moveRight) {
+    if (this.slideTime <= 0 && (this.moveLeft || this.moveRight)) {
       this.velocity.z -= Math.sin(this.yaw) * this.direction.x * baseSpeed * delta;
       this.velocity.x += Math.cos(this.yaw) * this.direction.x * baseSpeed * delta;
     }
@@ -383,6 +403,20 @@ export class FPSControls {
     // Remember the anchor relative to its box, so it moves with moving platforms
     this.grapple = { box: best.box, offset: best.point.clone().sub(best.box.min) };
     if (this.sound && this.sound.playJump) this.sound.playJump();
+  }
+
+  // Dash in the direction you are moving (or forward if you are standing still)
+  startSlide() {
+    if (!this.isLocked || this.slideCooldown > 0 || !this.canJump) return;
+    const dz = Number(this.moveForward) - Number(this.moveBackward);
+    const dx = Number(this.moveRight) - Number(this.moveLeft);
+    let fx = dz * -Math.sin(this.yaw) + dx * Math.cos(this.yaw);
+    let fz = dz * -Math.cos(this.yaw) + dx * -Math.sin(this.yaw);
+    if (dz === 0 && dx === 0) { fx = -Math.sin(this.yaw); fz = -Math.cos(this.yaw); }
+    const len = Math.hypot(fx, fz) || 1;
+    this.slideDir = { x: fx / len, z: fz / len };
+    this.slideTime = SLIDE_TIME;
+    this.slideCooldown = SLIDE_COOLDOWN;
   }
 
   releaseGrapple() {
