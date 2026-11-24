@@ -8,7 +8,8 @@ const ROOMS = {
   'world-hub':     { name: 'Event Horizon - World Server (Global)', map: 'singularity' },
   'aegis-station': { name: 'Aegis Space Station Arena', map: 'station' },
   'mars-outpost':  { name: 'Mars Red Dunes Colony', map: 'mars' },
-  'cyber-void':    { name: 'Cyber Void Jump Arena', map: 'cyber' }
+  'cyber-void':    { name: 'Cyber Void Jump Arena', map: 'cyber' },
+  'halo-city':     { name: 'Halo City River District', map: 'halo' }
 };
 
 const SPAWN_POINTS = {
@@ -23,6 +24,9 @@ const SPAWN_POINTS = {
   mars: [
     { x: 0, y: 2, z: 0 }, { x: 35, y: 3, z: 35 }, { x: -35, y: 3, z: -35 },
     { x: 40, y: 4, z: -20 }, { x: -40, y: 4, z: 20 }
+  ],
+  halo: [
+    { x: -100, y: 2, z: -60 }, { x: 100, y: 2, z: 60 }, { x: -100, y: 2, z: 60 }, { x: 100, y: 2, z: -60 }
   ],
   cyber: [
     { x: 0, y: 4, z: 0 }, { x: 22, y: 6, z: 22 }, { x: -22, y: 6, z: -22 },
@@ -599,6 +603,14 @@ export class MultiplayerClient {
     const health = num(data.health, 100);
     const model = this.skins.createPlayerModel(skin, name);
     model.position.set(num(data.x), num(data.y), num(data.z));
+    // Invisible box around the body that shots hit (the visible parts are too thin to hit reliably)
+    const hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 1.8, 0.6),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    hitbox.position.set(0, 0.9, 0);
+    hitbox.name = 'pilot-hitbox';
+    model.add(hitbox);
     this.scene.add(model);
     model.visible = !data.cloaked;
     this.skins.updateNametag(model, name, health, 100);
