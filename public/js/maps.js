@@ -1,6 +1,16 @@
 // EVENT HORIZON - 3D MULTI-LANDSCAPE ENVIRONMENT BUILDER
 import * as THREE from 'three';
 
+// Every staircase on every map uses this one colour
+const STAIR_COLOR = 0x00f0ff;
+let sharedStairMat = null;
+function stairMaterial() {
+  if (!sharedStairMat) {
+    sharedStairMat = new THREE.MeshStandardMaterial({ color: STAIR_COLOR, emissive: STAIR_COLOR, emissiveIntensity: 0.35, roughness: 0.45, metalness: 0.3 });
+  }
+  return sharedStairMat;
+}
+
 export class MapManager {
   constructor(scene) {
     this.scene = scene;
@@ -138,11 +148,12 @@ export class MapManager {
     this.createPlatform(group, 0, 8, 45, 22, 2.5, 22, platformMat, metalTrimMat);
     this.createPlatform(group, 0, 8, -45, 22, 2.5, 22, platformMat, metalTrimMat);
 
-    // Glowing Holographic Bridges connecting center to outer platforms
-    this.createBridge(group, 27, 2.5, 0, 18, 0.2, 6, energyBridgeMat);
-    this.createBridge(group, -27, 2.5, 0, 18, 0.2, 6, energyBridgeMat);
-    this.createBridge(group, 0, 4, 27, 6, 0.2, 18, energyBridgeMat);
-    this.createBridge(group, 0, 4, -27, 6, 0.2, 18, energyBridgeMat);
+    // Glowing stairways from the centre platform up to the four satellite platforms
+    const stairGlow = new THREE.MeshStandardMaterial({ color: 0x0b3b45, emissive: 0x00f0ff, emissiveIntensity: 0.5, roughness: 0.4 });
+    this.buildStairRun(group, { axis: 'x', start: 18, length: 16, dir: +1, cross: 0, width: 6, baseY: 1.5, topY: 6.25, mat: stairGlow });
+    this.buildStairRun(group, { axis: 'x', start: -18, length: 16, dir: -1, cross: 0, width: 6, baseY: 1.5, topY: 6.25, mat: stairGlow });
+    this.buildStairRun(group, { axis: 'z', start: 18, length: 16, dir: +1, cross: 0, width: 6, baseY: 1.5, topY: 9.25, mat: stairGlow });
+    this.buildStairRun(group, { axis: 'z', start: -18, length: 16, dir: -1, cross: 0, width: 6, baseY: 1.5, topY: 9.25, mat: stairGlow });
 
     // Jump Pads (Propels players)
     this.createJumpPad(group, 0, 1.6, 12, 0x00f0ff);
@@ -199,12 +210,13 @@ export class MapManager {
     this.createCoverCrate(group, -12, 2, 10, 5, 3, 3, neonOrange);
     this.createCoverCrate(group, 12, 2, -10, 5, 3, 3, neonOrange);
 
-    // Central Observation Hub Generator
-    const genGeo = new THREE.CylinderGeometry(4, 5, 8, 16);
-    const genMesh = new THREE.Mesh(genGeo, wallMat);
-    genMesh.position.set(0, 5, 0);
-    group.add(genMesh);
-    this.addBoxCollider(0, 5, 0, 8, 8, 8);
+    // Central Observation Hub Generator: a hollow room you can walk into (door faces +z)
+    this.buildHollowRoom(group, { x: 0, z: 0, w: 8, d: 8, h: 8, baseY: 1, facing: +1, wallMat, roofMat: wallMat });
+
+    // Stairs up the middle of the north and south walls (wall tops are at height 10)
+    const stationStair = new THREE.MeshStandardMaterial({ color: 0x475569, emissive: 0x00f0ff, emissiveIntensity: 0.2, roughness: 0.5, metalness: 0.4 });
+    this.buildStairRun(group, { axis: 'z', start: 0, length: 24, dir: +1, cross: -20, width: 4, baseY: 1, topY: 10, mat: stationStair });
+    this.buildStairRun(group, { axis: 'z', start: 0, length: 24, dir: -1, cross: 20, width: 4, baseY: 1, topY: 10, mat: stationStair });
 
     const genRing = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.25, 12, 32), neonCyan);
     genRing.rotation.x = Math.PI / 2;
@@ -247,12 +259,16 @@ export class MapManager {
     // Martian terrain base
     this.createPlatform(group, 0, 0, 0, 90, 2, 90, redSandMat, redSandMat);
 
-    // Habitat Terraforming Dome
+    // Habitat Terraforming Dome: a hollow room with a doorway, and a flat roof you can stand on
+    const domeMat = habitatMat.clone();
+    domeMat.side = THREE.DoubleSide; // visible from inside too
     const domeGeo = new THREE.SphereGeometry(14, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-    const dome = new THREE.Mesh(domeGeo, habitatMat);
+    const dome = new THREE.Mesh(domeGeo, domeMat);
     dome.position.set(-18, 1, -12);
     group.add(dome);
-    this.addBoxCollider(-18, 7, -12, 26, 14, 26);
+    this.buildHollowRoom(group, { x: -18, z: -12, w: 26, d: 26, h: 13, baseY: 1, facing: +1, wallMat: habitatMat, roofMat: habitatMat });
+    // Stairs from the ground up to the dome roof (roof top is 14.6), entering from the west
+    this.buildStairRun(group, { axis: 'x', start: -44, length: 13, dir: +1, cross: -12, width: 4, baseY: 1, topY: 14.6, mat: habitatMat });
 
     // Satellite Array Tower
     const towerGeo = new THREE.CylinderGeometry(0.5, 1.5, 24, 8);
@@ -323,6 +339,15 @@ export class MapManager {
 
     // Center Elevated Cyber Core
     this.createPlatform(group, 0, 5, 0, 18, 2, 18, darkGridMat, neonCyan);
+
+    // Stairs up to each corner tower (they run in from the arena floor, at tower height 11)
+    const cyberStair = new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0xff007f, emissiveIntensity: 0.4, roughness: 0.4 });
+    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: +1, cross: 20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
+    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: -1, cross: 20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
+    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: +1, cross: -20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
+    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: -1, cross: -20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
+    // Stairs up to the centre core (top at 6), from the south edge of the arena
+    this.buildStairRun(group, { axis: 'z', start: -18, length: 9, dir: +1, cross: 0, width: 4, baseY: 1, topY: 6, mat: cyberStair });
 
     // Jump pads leading to upper platforms
     this.createJumpPad(group, 10, 1.5, 10, 0x00f0ff);
@@ -556,6 +581,48 @@ export class MapManager {
     ];
   }
 
+  // A run of solid steps. The run starts at coordinate `start` on `axis` ('x' or 'z') and
+  // runs `length` units in direction `dir` (+1 or -1). `cross` is the other coordinate of the
+  // run's centre line. Steps climb from baseY to topY, each rising at most 0.6 so the
+  // controller can walk up them. Every step box reaches down to baseY, so the stairs are solid.
+  buildStairRun(group, { axis, start, length, dir, cross, width, baseY, topY, mat }) {
+    const n = Math.ceil((topY - baseY) / 0.6);
+    const tread = length / n;
+    for (let k = 0; k < n; k++) {
+      const top = baseY + ((topY - baseY) * (k + 1)) / n;
+      const h = top - baseY;
+      const a0 = start + dir * k * tread;
+      const a1 = start + dir * (k + 1) * tread;
+      const c = (Math.min(a0, a1) + Math.max(a0, a1)) / 2;
+      const sx = axis === 'x' ? tread : width;
+      const sz = axis === 'x' ? width : tread;
+      const cx = axis === 'x' ? c : cross;
+      const cz = axis === 'x' ? cross : c;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, h, sz), stairMaterial());
+      mesh.position.set(cx, baseY + h / 2, cz);
+      group.add(mesh);
+      this.addBoxCollider(cx, baseY + h / 2, cz, sx, h, sz);
+    }
+  }
+
+  // A hollow room with a doorway in its front wall (facing = +1 or -1 along z) and a solid roof.
+  // Its floor is the ground at baseY. Walls, lintel and roof are solid, so you walk in through the door.
+  buildHollowRoom(group, { x, z, w, d, h, baseY, facing, wallMat, roofMat, t = 0.8, doorW = 4 }) {
+    const hw = w / 2, hd = d / 2;
+    const frontZ = z + facing * (hd - t / 2);
+    const backZ = z - facing * (hd - t / 2);
+    const mid = baseY + h / 2;
+    this.createWall(group, x, mid, backZ, w, h, t, wallMat);
+    this.createWall(group, x - hw + t / 2, mid, z, t, h, d, wallMat);
+    this.createWall(group, x + hw - t / 2, mid, z, t, h, d, wallMat);
+    const pieceW = (w - doorW) / 2;
+    const pieceX = doorW / 2 + pieceW / 2;
+    this.createWall(group, x - pieceX, mid, frontZ, pieceW, h, t, wallMat);
+    this.createWall(group, x + pieceX, mid, frontZ, pieceW, h, t, wallMat);
+    this.createWall(group, x, baseY + h - 1, frontZ, doorW, 2, t, wallMat);
+    this.createWall(group, x, baseY + h + 0.3, z, w, 0.6, d, roofMat);
+  }
+
   // A hollow 16x14 building with a 4-wide doorway in its front wall. facing = +1 or -1
   // is the direction the door faces (along z). Walls, lintel and roof are all solid colliders,
   // so you walk in through the door and the side walls keep you inside.
@@ -586,45 +653,41 @@ export class MapManager {
     strip.position.set(x, 3.5, backZ + facing * (t / 2 + 0.06));
     group.add(strip);
 
-    this.buildHaloStairs(group, x, z, facing, h + 0.6, style);
+    this.buildHaloStairs(group, x, z, facing, h + 0.6, 1);
   }
 
-  // Stairs from the ground up to the roof (topY). Three styles:
-  //   0: narrow run straight out from the back wall, purple
-  //   1: wide run straight out from the back wall, cyan
-  //   2: narrow run in the alley beside the building, orange
-  // Each step is 1 unit deep and rises by at most 0.6, so the controller can walk up them.
-  buildHaloStairs(group, x, z, f, topY, style) {
-    const hd = 7;        // half the building depth
-    const tread = 1.0;   // depth of one step
+  // Stairs that wrap round the back of a Halo building and up its right-hand side.
+  // They start at the front corner on that side, run back along the side wall, round the
+  // back wall, and finish at the roof edge. side = +1 is the right-hand side.
+  buildHaloStairs(group, x, z, f, topY, side) {
+    const w = 16, d = 14, hw = w / 2, hd = d / 2, W = 2.5; // W = width of the stairs
+    const frontZ = z + f * hd;
+    const backZ = z - f * hd;
+    const xr = x + side * hw;
+    const L = d + w;                // the path length: side wall, then back wall
     const n = Math.ceil(topY / 0.6);
     const rise = topY / n;
-    const frontFace = z + f * hd;
-    const backFace = z - f * hd;
-
-    const styles = [
-      { width: 3, color: 0x9d4edd, alley: false },
-      { width: 6, color: 0x00f0ff, alley: false },
-      { width: 2.5, color: 0xff6b35, alley: true }
-    ];
-    const s = styles[((style % 3) + 3) % 3];
-    const stepMat = new THREE.MeshStandardMaterial({
-      color: s.color, emissive: s.color, emissiveIntensity: 0.25, roughness: 0.5, metalness: 0.4
-    });
-
-    // The run goes from low (far out) to high (at the building). The top step touches the
-    // roof: the back wall for back runs, the side wall for alley runs.
-    const cx = s.alley ? x + 8 + s.width / 2 : x;
-    const edgeZ = s.alley ? frontFace : backFace;
-    const startZ = edgeZ - f * n * tread;
-
+    const tread = L / n;
     for (let k = 0; k < n; k++) {
       const top = (k + 1) * rise;
-      const zc = startZ + f * (k + 0.5) * tread;
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(s.width, top, tread), stepMat);
-      mesh.position.set(cx, top / 2, zc);
+      const s = (k + 0.5) * tread;  // distance along the path to the middle of this step
+      let cx, cz, sx, sz;
+      if (s <= d) {
+        // Along the side wall, from the front corner toward the back
+        cx = xr + side * W / 2;
+        cz = frontZ - f * s;
+        sx = W; sz = tread;
+      } else {
+        // Across the back wall, from the side corner to the far side
+        const s2 = s - d;
+        cx = xr - side * s2;
+        cz = backZ - f * W / 2;
+        sx = tread; sz = W;
+      }
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, top, sz), stairMaterial());
+      mesh.position.set(cx, top / 2, cz);
       group.add(mesh);
-      this.addBoxCollider(cx, top / 2, zc, s.width, top, tread);
+      this.addBoxCollider(cx, top / 2, cz, sx, top, sz);
     }
   }
 
