@@ -173,14 +173,17 @@ class EventHorizonGame {
         const skinGrid = document.getElementById('tab-content-skins');
         const wepGrid = document.getElementById('tab-content-weapons');
         const camoGrid = document.getElementById('tab-content-camos');
+        const abilGrid = document.getElementById('tab-content-abilities');
 
         skinGrid.style.display = tab === 'skins' ? 'grid' : 'none';
         wepGrid.style.display = tab === 'weapons' ? 'grid' : 'none';
         camoGrid.style.display = tab === 'camos' ? 'grid' : 'none';
+        abilGrid.style.display = tab === 'abilities' ? 'grid' : 'none';
 
         if (tab === 'skins') this.shop.renderSkinsTab(skinGrid);
         if (tab === 'weapons') this.shop.renderWeaponsTab(wepGrid);
         if (tab === 'camos') this.shop.renderCamosTab(camoGrid);
+        if (tab === 'abilities') this.shop.renderAbilitiesTab(abilGrid);
       });
     });
 
@@ -489,6 +492,11 @@ class EventHorizonGame {
       });
     }
 
+    window.addEventListener('abilities_changed', () => {
+      this.applyGrants();
+      this.ui.updateUserBadge();
+    });
+
     this.buildSelfGrantPanel();
     this.buildScopeOverlay();
     window.addEventListener('room_state', (e) => this.onRoomState(e.detail));
@@ -684,7 +692,7 @@ class EventHorizonGame {
 
     // Granted abilities come first, then the ones this level unlocks
     const level = (this.auth.profile && this.auth.profile.level) || 1;
-    const available = [...new Set([...(g.abilities || []), ...this.abilities.unlockedFor(level)])];
+    const available = [...new Set([...(g.abilities || []), ...this.abilities.unlockedFor(level, this.auth.profile.unlockedAbilities || [])])];
     this.abilities.slots = { E: null, Q: null };
     this.abilities.equip('E', available[0] || null, available);
     this.abilities.equip('Q', available[1] || null, available);

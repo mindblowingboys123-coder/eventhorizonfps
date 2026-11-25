@@ -1,6 +1,9 @@
 // EVENT HORIZON - ARMORY & SHOP MANAGER
 import { SKIN_DEFINITIONS } from './skins.js';
 import { WEAPON_DEFS } from './weapons.js';
+import { ABILITY_LIST } from './abilities.js';
+
+export const ABILITY_PRICE = 20000; // credits to buy an ability outright
 
 export const TRACER_OPTIONS = [
   { id: 'cyan', name: 'Cyan Plasma Core', color: '#00f0ff', hex: 0x00f0ff, cost: 0, unlocked: true },
@@ -126,6 +129,46 @@ export class ShopManager {
 
       container.appendChild(card);
     }
+  }
+
+  // Abilities: buy the ones your level has not unlocked yet
+  renderAbilitiesTab(container) {
+    if (!container) return;
+    container.innerHTML = '';
+    const profile = this.auth.profile;
+    const owned = profile.unlockedAbilities || [];
+
+    ABILITY_LIST.forEach((a) => {
+      const byLevel = (profile.level || 1) >= a.level;
+      const bought = owned.includes(a.id);
+      const card = document.createElement('div');
+      card.className = 'skin-card';
+
+      let action;
+      if (byLevel) action = `<div style="color:#00ff88; font-size:0.85rem;">Unlocked at level ${a.level}</div>`;
+      else if (bought) action = `<div style="color:#00ff88; font-size:0.85rem;">Owned</div>`;
+      else action = `<button class="sci-btn primary btn-buy-ability" style="width:100%; justify-content:center; padding:10px;">BUY · ${ABILITY_PRICE.toLocaleString()} CR</button>`;
+
+      card.innerHTML = `
+        <h4>${a.name}</h4>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">${a.description}</p>
+        ${action}
+      `;
+
+      const btn = card.querySelector('.btn-buy-ability');
+      if (btn) {
+        btn.addEventListener('click', () => {
+          if (this.auth.buyAbility(a.id, ABILITY_PRICE)) {
+            this.sound.playKillChime();
+            window.dispatchEvent(new CustomEvent('abilities_changed'));
+            this.renderAbilitiesTab(container);
+          } else {
+            alert(`Not enough credits. An ability costs ${ABILITY_PRICE.toLocaleString()} CR.`);
+          }
+        });
+      }
+      container.appendChild(card);
+    });
   }
 
   renderCamosTab(container) {

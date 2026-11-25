@@ -125,6 +125,7 @@ export class AuthManager {
       unlockedSkins: ['vanguard'],
       unlockedWeapons: ['rifle', 'blaster'],
       unlockedCamos: ['default'],
+      unlockedAbilities: [],
       storyProgress: {
         mission1Completed: false,
         mission2Completed: false,
@@ -202,6 +203,18 @@ export class AuthManager {
     if (this.profile.credits >= cost && !this.profile.unlockedSkins.includes(skinId)) {
       this.profile.credits -= cost;
       this.profile.unlockedSkins.push(skinId);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  // Buys an ability (kept in unlockedAbilities) so it can be equipped at any level
+  buyAbility(abilityId, cost) {
+    const owned = this.profile.unlockedAbilities || [];
+    if (this.profile.credits >= cost && !owned.includes(abilityId)) {
+      this.profile.credits -= cost;
+      this.profile.unlockedAbilities = [...owned, abilityId];
       this.save();
       return true;
     }
