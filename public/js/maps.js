@@ -214,11 +214,6 @@ export class MapManager {
     // Central Observation Hub Generator: a hollow room you can walk into (door faces +z)
     this.buildHollowRoom(group, { x: 0, z: 0, w: 8, d: 8, h: 8, baseY: 1, facing: +1, wallMat, roofMat: wallMat });
 
-    // Stairs up the middle of the north and south walls (wall tops are at height 10)
-    const stationStair = new THREE.MeshStandardMaterial({ color: 0x475569, emissive: 0x00f0ff, emissiveIntensity: 0.2, roughness: 0.5, metalness: 0.4 });
-    this.buildStairRun(group, { axis: 'z', start: 0, length: 24, dir: +1, cross: -20, width: 4, baseY: 1, topY: 10, mat: stationStair });
-    this.buildStairRun(group, { axis: 'z', start: 0, length: 24, dir: -1, cross: 20, width: 4, baseY: 1, topY: 10, mat: stationStair });
-
     const genRing = new THREE.Mesh(new THREE.TorusGeometry(5.2, 0.25, 12, 32), neonCyan);
     genRing.rotation.x = Math.PI / 2;
     genRing.position.set(0, 5, 0);
@@ -341,14 +336,6 @@ export class MapManager {
     // Center Elevated Cyber Core
     this.createPlatform(group, 0, 5, 0, 18, 2, 18, darkGridMat, neonCyan);
 
-    // Stairs up to each corner tower (they run in from the arena floor, at tower height 11)
-    const cyberStair = new THREE.MeshStandardMaterial({ color: 0x1e293b, emissive: 0xff007f, emissiveIntensity: 0.4, roughness: 0.4 });
-    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: +1, cross: 20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
-    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: -1, cross: 20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
-    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: +1, cross: -20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
-    this.buildStairRun(group, { axis: 'x', start: 0, length: 13, dir: -1, cross: -20, width: 3, baseY: 1, topY: 11, mat: cyberStair });
-    // Stairs up to the centre core (top at 6), from the south edge of the arena
-    this.buildStairRun(group, { axis: 'z', start: -18, length: 9, dir: +1, cross: 0, width: 4, baseY: 1, topY: 6, mat: cyberStair });
 
     // Jump pads leading to upper platforms
     this.createJumpPad(group, 10, 1.5, 10, 0x00f0ff);
