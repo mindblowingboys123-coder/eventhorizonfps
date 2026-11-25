@@ -126,6 +126,7 @@ export class AuthManager {
       unlockedWeapons: ['rifle', 'blaster'],
       unlockedCamos: ['default'],
       unlockedAbilities: [],
+      equippedAbilities: { E: null, Q: null },
       storyProgress: {
         mission1Completed: false,
         mission2Completed: false,
@@ -207,6 +208,16 @@ export class AuthManager {
       return true;
     }
     return false;
+  }
+
+  // Remembers which ability goes in the E or Q slot
+  setEquippedAbility(slot, abilityId) {
+    if (slot !== 'E' && slot !== 'Q') return;
+    const eq = { E: null, Q: null, ...(this.profile.equippedAbilities || {}) };
+    if (abilityId) for (const s of ['E', 'Q']) if (eq[s] === abilityId) eq[s] = null;
+    eq[slot] = abilityId;
+    this.profile.equippedAbilities = eq;
+    this.save();
   }
 
   // Buys an ability (kept in unlockedAbilities) so it can be equipped at any level

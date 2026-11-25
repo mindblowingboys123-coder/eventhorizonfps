@@ -167,6 +167,25 @@ export class ShopManager {
           }
         });
       }
+      // Pick which ability goes in the E slot and which in the Q slot
+      if (byLevel || bought) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex; gap:8px; margin-top:10px;';
+        ['E', 'Q'].forEach((slot) => {
+          const b = document.createElement('button');
+          b.className = 'sci-btn';
+          b.style.cssText = 'flex:1; justify-content:center; padding:8px; font-size:0.8rem;';
+          const current = (profile.equippedAbilities || {})[slot] === a.id;
+          b.textContent = (current ? 'IN SLOT ' : 'SET AS ') + slot;
+          b.addEventListener('click', () => {
+            this.auth.setEquippedAbility(slot, a.id);
+            window.dispatchEvent(new CustomEvent('abilities_changed'));
+            this.renderAbilitiesTab(container);
+          });
+          row.appendChild(b);
+        });
+        card.appendChild(row);
+      }
       container.appendChild(card);
     });
   }

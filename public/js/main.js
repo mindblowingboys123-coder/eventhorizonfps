@@ -693,9 +693,14 @@ class EventHorizonGame {
     // Granted abilities come first, then the ones this level unlocks
     const level = (this.auth.profile && this.auth.profile.level) || 1;
     const available = [...new Set([...(g.abilities || []), ...this.abilities.unlockedFor(level, this.auth.profile.unlockedAbilities || [])])];
+    // Use the slots the player chose, if they are still available; fill the rest in order
+    const saved = (this.auth.profile && this.auth.profile.equippedAbilities) || {};
+    const pickE = available.includes(saved.E) ? saved.E : null;
+    const pickQ = available.includes(saved.Q) && saved.Q !== pickE ? saved.Q : null;
+    const fill = available.filter((id) => id !== pickE && id !== pickQ);
     this.abilities.slots = { E: null, Q: null };
-    this.abilities.equip('E', available[0] || null, available);
-    this.abilities.equip('Q', available[1] || null, available);
+    this.abilities.equip('E', pickE || fill.shift() || null, available);
+    this.abilities.equip('Q', pickQ || fill.shift() || null, available);
   }
 
   useAbility(slot) {
