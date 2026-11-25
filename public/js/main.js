@@ -1097,7 +1097,16 @@ class EventHorizonGame {
     this.ui.addKillFeed(killer, this.auth.profile.name, 'Vaporizer');
 
     // For 2 seconds: look through the killer's eyes, or fall over where you stand
-    this.deathView = { killerId: killerId, start: performance.now(), base: this.camera.position.clone() };
+    if (this.gameState === 'MULTIPLAYER') this.multiplayer.markDead();
+
+    // Your body falls where you stood. Only you can see it: it is not sent to other pilots.
+    const base = this.camera.position.clone();
+    const body = this.skins.createPlayerModel(this.auth.profile.equippedSkin, this.auth.profile.name);
+    body.position.set(base.x, base.y - 1.6, base.z);
+    body.rotation.y = this.controls.yaw;
+    this.scene.add(body);
+    this.deathBody = body;
+    this.deathView = { start: performance.now(), base, yaw: this.controls.yaw };
 
     // After the death view: in a match, pick where to respawn; otherwise respawn at once
     setTimeout(() => {
@@ -1115,6 +1124,7 @@ class EventHorizonGame {
   finishRespawn(sp, inMatch) {
     const panel = document.getElementById('respawn-picker');
     if (panel) panel.style.display = 'none';
+    if (this.deathBody) { this.scene.remove(this.deathBody); this.deathBody = null; }
     if (inMatch) this.multiplayer.sendRespawn();
     this.resetVitals();
     this.controls.setPosition(sp.x, sp.y, sp.z);
@@ -1173,91 +1183,22 @@ class EventHorizonGame {
     this.camera.rotation.set(-0.25, r.heading, 0, 'YXZ');
   }
 
-  // While dead, the camera follows the killer's eyes, or tips over where you fell
+  // While dead: a third-person view of your body, falling and then pulling back
   updateDeathView(now) {
     const dv = this.deathView;
-    const killer = dv.killerId ? this.multiplayer.otherPlayers[dv.killerId] : null;
-    if (killer) {
-      const p = killer.model.position;
-      this.camera.position.set(p.x, p.y + 1.6, p.z);
-      this.camera.rotation.set(killer.pitch || 0, killer.targetRot || 0, 0, 'YXZ');
-      return;
-    }
     const t = Math.min(1, (now - dv.start) / 600);
-    this.camera.position.set(dv.base.x, dv.base.y - 1.2 * t, dv.base.z);
-    this.camera.rotation.set(this.controls.pitch + 0.9 * t, this.controls.yaw, 0.6 * t, 'YXZ');
-  }
+    const body = this.deathBody;
+    if (body) body.rotation.x = -t * Math.PI / 2; // tip backwards onto the floor
 
-  triggerPlayerShoot() {
-    const origin = this.camera.position.clone();
-    const dir = this.controls.getForwardDirection();
-    // Admin-only trail colour (other trails are not applied yet)
-    const equippedTrail = TRACER_OPTIONS.find(t => t.id === this.auth.profile.equippedTracer);
-    const trailColor = equippedTrail && equippedTrail.adminOnly && this.auth.profile.isAdmin ? equippedTrail.hex : null;
-    const shots = this.weapons.shoot(origin, dir, trailColor);
-
-    if (!shots) return; // out of ammo or reloading
-
-    // Broadcast shoot event in multiplayer
-    if (this.gameState === 'MULTIPLAYER') {
-      const activeWep = this.weapons.getActiveWeapon();
-      this.multiplayer.sendShoot(origin, dir, activeWep.id, trailColor || activeWep.tracerColor);
-    }
-
-    // Hitscan collision check
-    // Name tags are sprites, which need the camera to raycast safely
-    this.raycaster.camera = this.camera;
-    shots.forEach(shot => {
-      this.raycaster.set(shot.origin, shot.direction);
-
-      if (this.gameState === 'STORY') {
-        // Test hits on AI enemies and boss
-        const enemyMeshes = this.enemies.getEnemyMeshes();
-        const intersects = this.raycaster.intersectObjects(enemyMeshes, true);
-
-        if (intersects.length > 0) {
-          const hitMesh = intersects[0].object;
-          // Find root enemy
-          let root = hitMesh;
-          while (root.parent && root.parent !== this.scene) {
-            root = root.parent;
-          }
-
-          const targetEnemy = this.enemies.enemies.find(e => e.mesh === root) ||
-            (this.enemies.boss && this.enemies.boss.mesh === root ? this.enemies.boss : null);
-
-          if (targetEnemy) {
-            const res = this.enemies.damageEnemy(targetEnemy.id, shot.damage);
-            this.ui.triggerHitMarker();
-            this.sound.playHitMarker(res && res.isDead);
-
-            if (res && res.isDead) {
-              this.auth.recordKill();
-              this.ui.addKillFeed(this.auth.profile.name, targetEnemy.type.toUpperCase(), this.weapons.getActiveWeapon().name);
-            }
-          }
-        }
-      } else if (this.gameState === 'MULTIPLAYER') {
-        // Test hits on other players
-        const remotePlayers = this.multiplayer.getRemotePlayerMeshes();
-        const targets = remotePlayers.map(p => p.mesh);
-        const intersects = this.raycaster.intersectObjects(targets, true);
-
-        if (intersects.length > 0) {
-          let root = intersects[0].object;
-          while (root.parent && root.parent !== this.scene) {
-            root = root.parent;
-          }
-
-          const hitPlayer = remotePlayers.find(p => p.mesh === root);
-          if (hitPlayer) {
-            this.multiplayer.sendHit(hitPlayer.id, shot.damage, this.weapons.getActiveWeapon().id);
-            this.ui.triggerHitMarker();
-            this.sound.playHitMarker(false);
-          }
-        }
-      }
-    });
+    const pull = Math.min(1, (now - dv.start) / 2000);
+    const dist = 3.5 + pull * 1.5;
+    const center = new THREE.Vector3(dv.base.x, dv.base.y - 0.9, dv.base.z);
+    this.camera.position.set(
+      center.x + Math.sin(dv.yaw) * dist,
+      center.y + 1.2 + pull * 1.0,
+      center.z + Math.cos(dv.yaw) * dist
+    );
+    this.camera.lookAt(center);
   }
 
   animate() {

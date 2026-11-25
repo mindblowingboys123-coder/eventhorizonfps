@@ -327,8 +327,6 @@ export class MultiplayerClient {
           this.stats.kills += 1;
           this.writeMine({ kills: this.stats.kills });
         }
-        // A pilot who was just killed tips over for two seconds
-        if (f.victimId !== me && this.otherPlayers[f.victimId]) this.otherPlayers[f.victimId].dyingLeft = 2.0;
         // Your own death is shown by main.js, so skip it here
         if (f.victimId !== me) {
           window.dispatchEvent(new CustomEvent('kill_feed_event', {
@@ -355,6 +353,13 @@ export class MultiplayerClient {
 
   setCloaked(cloaked) {
     this.cloaked = !!cloaked;
+  }
+
+  // Other pilots see you disappear the moment you die (main.js shows your body only to you)
+  markDead() {
+    if (this.dead) return;
+    this.dead = true;
+    this.writeMine({ dead: true });
   }
 
   // ---------- combat ----------
@@ -423,7 +428,7 @@ export class MultiplayerClient {
   die(killerId, killerName, weapon) {
     this.dead = true;
     this.stats.deaths += 1;
-    this.writeMine({ deaths: this.stats.deaths });
+    this.writeMine({ deaths: this.stats.deaths, dead: true });
     this.postFeed(this.currentRoom, {
       kind: 'kill',
       killerId: killerId || '',
@@ -498,7 +503,8 @@ export class MultiplayerClient {
       isCrouching: !!isCrouching,
       health: num(this.vitals.health, 100),
       shield: num(this.vitals.shield, 50),
-      cloaked: this.cloaked
+      cloaked: this.cloaked,
+      dead: !!this.dead
     });
   }
 
@@ -530,7 +536,7 @@ export class MultiplayerClient {
     if (!this.joined) return;
     this.dead = false;
     this.vitals = { health: 100, shield: 50 };
-    this.writeMine({ health: 100, shield: 50 });
+    this.writeMine({ health: 100, shield: 50, dead: false });
   }
 
   sendChat(text) {
@@ -615,7 +621,7 @@ export class MultiplayerClient {
     hitbox.name = 'pilot-hitbox';
     model.add(hitbox);
     this.scene.add(model);
-    model.visible = !data.cloaked;
+    model.visible = !data.cloaked && !data.dead;
     this.skins.updateNametag(model, name, health, 100);
 
     this.otherPlayers[data.id] = {
@@ -654,7 +660,9 @@ export class MultiplayerClient {
     if (d.rotX !== undefined) rp.pitch = num(d.rotX);
     rp.isMoving = !!d.isMoving;
     if (d.health !== undefined) rp.health = num(d.health, rp.health);
-    if (d.cloaked !== undefined) { rp.cloaked = !!d.cloaked; rp.model.visible = !rp.cloaked; }
+    if (d.dead !== undefined) rp.dead = !!d.dead;
+    if (d.cloaked !== undefined) rp.cloaked = !!d.cloaked;
+    rp.model.visible = !rp.cloaked && !rp.dead;
     if (d.kills !== undefined) { rp.kills = num(d.kills); rp.score = rp.kills * 100; }
     if (d.deaths !== undefined) rp.deaths = num(d.deaths);
     if (d.name) rp.name = d.name;
@@ -680,16 +688,13 @@ export class MultiplayerClient {
       const rp = this.otherPlayers[id];
       rp.model.position.lerp(rp.targetPos, Math.min(1, delta * 15));
       rp.model.rotation.y += (rp.targetRot - rp.model.rotation.y) * Math.min(1, delta * 12);
-      // A pilot who was just killed tips over, then stands up when they respawn
-      if (rp.dyingLeft > 0) rp.dyingLeft = Math.max(0, rp.dyingLeft - delta);
-      const fall = rp.dyingLeft > 0 ? Math.min(1, (2.0 - rp.dyingLeft) / 0.4) : 0;
-      rp.model.rotation.x = -fall * Math.PI / 2;
       this.skins.animateModel(rp.model, delta, rp.isMoving);
     }
   }
 
   getRemotePlayerMeshes() {
-    return Object.values(this.otherPlayers).filter((p) => !p.cloaked).map((p) => ({
+    // Cloaked and dead pilots cannot be shot
+    return Object.values(this.otherPlayers).filter((p) => !p.cloaked && !p.dead).map((p) => ({
       id: p.id,
       mesh: p.model,
       name: p.name
