@@ -264,6 +264,7 @@ export class MultiplayerClient {
     this.myRef = null;
     this.joined = false;
     this.isConnected = false;
+    this.lastRoom = this.currentRoom || this.lastRoom || null;
     this.currentRoom = null;
     this.lastMap = null;
     this.dead = false;
@@ -538,7 +539,7 @@ export class MultiplayerClient {
 
   sendAdminAction(action, targetId = null, extra = {}) {
     if (!this.isConnected || !this.db) return;
-    const room = this.currentRoom || 'world-hub';
+    const room = this.currentRoom || this.lastRoom || 'world-hub';
 
     if (action === 'change_map') {
       this.db.ref(`rooms/${room}/meta/map`).set(String(extra.map || 'singularity'))
@@ -562,7 +563,7 @@ export class MultiplayerClient {
   }
 
   async requestAdminPlayerList() {
-    const room = this.currentRoom || 'world-hub';
+    const room = this.currentRoom || this.lastRoom || 'world-hub';
     let list = [];
     try {
       await this.ready();
