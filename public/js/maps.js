@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 
 // Every staircase on every map uses this one colour
-const STAIR_COLOR = 0x00f0ff;
+const STAIR_COLOR = 0x9d4edd;
 let sharedStairMat = null;
 function stairMaterial() {
   if (!sharedStairMat) {
