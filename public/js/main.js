@@ -12,6 +12,7 @@ import { MultiplayerClient } from './multiplayer.js';
 import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
+import { GadgetManager } from './gadgets.js';
 const CATACLYSM_MS = 10 * 60 * 1000; // how long the centre floor stays broken
 const SHATTERED_SPAWN = { x: 0, y: 3, z: 0 }; // core island on the shattered floor map
 
@@ -97,6 +98,11 @@ class EventHorizonGame {
     this.enemies = new EnemyManager(this.scene, this.sound);
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
+    this.gadgets = new GadgetManager(this.scene, {
+      getPilots: () => this.multiplayer.getRemotePlayerMeshes(),
+      sendHit: (id, dmg, weapon) => this.multiplayer.sendHit(id, dmg, weapon),
+      isBlocked: (x, z, feetY) => this.isBlockedAt(x, z, feetY)
+    });
     this.multiplayer.isInvincible = () => !!(this.auth && this.auth.profile && this.auth.profile.godMode)
       || performance.now() < (this.spawnShieldUntil || 0);
     this.applyGrants();
@@ -704,11 +710,20 @@ class EventHorizonGame {
   }
 
   useAbility(slot) {
-    if (this.gameState === 'MENU' || this.isDead) return;
+    if (this.gameState === 'MENU' || this.isDead || this.gadgets.car) return;
     const res = this.abilities.use(slot, this.abilityContext());
     if (res.ok) {
       this.ui.addChatMessage('⚡ ABILITY', res.hits ? `${res.name} hit ${res.hits}` : res.name, true);
     }
+  }
+
+  // True if a body standing at feetY would overlap a wall or block at (x, z)
+  isBlockedAt(x, z, feetY) {
+    const boxes = this.controls.colliders || [];
+    return boxes.some((b) => b.min && b.max &&
+      x > b.min.x - 0.4 && x < b.max.x + 0.4 &&
+      z > b.min.z - 0.4 && z < b.max.z + 0.4 &&
+      b.max.y > feetY + 0.2 && b.min.y < feetY + 1.6);
   }
 
   abilityContext() {
@@ -738,6 +753,22 @@ class EventHorizonGame {
         if (e.kind === 'enemy') { e.pos.x += (x - e.pos.x) * 0.5; e.pos.z += (z - e.pos.z) * 0.5; }
       },
       dash: (vx, vz) => { this.controls.velocity.x = vx; this.controls.velocity.z = vz; },
+      deployCar: () => this.gadgets.deployCar(cam.x, cam.y - 1.6, cam.z, this.controls.yaw),
+      deployTurret: () => this.gadgets.deployTurret(cam.x, cam.y - 1.6, cam.z),
+      deployMine: () => this.gadgets.deployMine(cam.x, cam.y - 1.6, cam.z),
+      deployDecoy: () => this.gadgets.deployDecoy(cam.x, cam.y - 1.6, cam.z, this.controls.yaw),
+      blink: (dist) => {
+        // Try the full distance first, then shorter, and stop before a wall
+        for (let s = dist; s >= 2; s -= 1) {
+          const x = cam.x + flat.x * s;
+          const z = cam.z + flat.z * s;
+          if (!this.isBlockedAt(x, z, cam.y - 1.6)) {
+            this.controls.setPosition(x, cam.y, z);
+            return true;
+          }
+        }
+        return false;
+      },
       addShield: (n) => {
         this.shield = Math.min(this.maxShield, this.shield + n);
         this.ui.updateVitals(this.health, this.maxHealth, this.shield, this.maxShield);
@@ -1006,6 +1037,7 @@ class EventHorizonGame {
     this.gameState = 'MENU';
     this.controls.unlock();
     this.multiplayer.disconnect();
+    this.gadgets.clearAll();
     this.remoteGrants = null;
     this.applyGrants();
     this.story.isMissionActive = false;
@@ -1058,6 +1090,7 @@ class EventHorizonGame {
   handlePlayerDeath(killer, killerId = null) {
     if (this.isDead) return;
     this.isDead = true;
+    this.gadgets.clearAll();
     this.auth.recordDeath();
     this.sound.playPlayerHurt();
 
@@ -1066,21 +1099,105 @@ class EventHorizonGame {
     // For 2 seconds: look through the killer's eyes, or fall over where you stand
     this.deathView = { killerId: killerId, start: performance.now(), base: this.camera.position.clone() };
 
-    // Respawn after 2 seconds
+    // After the death view: in a match, pick where to respawn; otherwise respawn at once
     setTimeout(() => {
-      if (this.gameState === 'MULTIPLAYER') {
-        this.multiplayer.sendRespawn();
-      }
       this.deathView = null;
       this.camera.rotation.set(this.controls.pitch, this.controls.yaw, 0, 'YXZ');
-      this.resetVitals();
-      const inMatch = this.gameState === 'MULTIPLAYER';
-      const sp = inMatch
-        ? this.pickRespawnPoint()
-        : (this.controls.voidRespawn || { x: 0, y: 4, z: 0 });
-      this.controls.setPosition(sp.x, sp.y, sp.z);
-      if (inMatch) this.spawnShieldUntil = performance.now() + 2500;
+      if (this.gameState === 'MULTIPLAYER') {
+        this.showRespawnPicker();
+      } else {
+        this.finishRespawn(this.controls.voidRespawn || { x: 0, y: 4, z: 0 }, false);
+      }
     }, 2000);
+  }
+
+  // Puts the player back in the world at a chosen spawn
+  finishRespawn(sp, inMatch) {
+    if (this.respawnTimer) { clearInterval(this.respawnTimer); this.respawnTimer = null; }
+    const panel = document.getElementById('respawn-picker');
+    if (panel) panel.style.display = 'none';
+    if (inMatch) this.multiplayer.sendRespawn();
+    this.resetVitals();
+    this.controls.setPosition(sp.x, sp.y, sp.z);
+    if (inMatch) this.spawnShieldUntil = performance.now() + 2500;
+  }
+
+  // Lets the pilot choose a spawn point that has no living pilot within 15 metres.
+  // If they do not choose in 12 seconds, a random safe spawn is used.
+  showRespawnPicker() {
+    const foes = this.multiplayer.getRemotePlayerMeshes().map((p) => p.mesh.position);
+    const spawns = this.maps.currentSpawns || [];
+    const safe = spawns.filter((s) => foes.every((f) => Math.hypot(f.x - s.x, f.z - s.z) >= 15));
+    const choices = (safe.length ? safe : spawns).slice(0, 8);
+    if (choices.length === 0) {
+      this.finishRespawn(this.pickRespawnPoint(), true);
+      return;
+    }
+
+    let panel = document.getElementById('respawn-picker');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'respawn-picker';
+      panel.style.cssText = 'position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); font-family:var(--font-display);';
+      document.body.appendChild(panel);
+    }
+    panel.innerHTML = `
+      <div style="background:#05070d; border:1px solid var(--primary-cyan); border-radius:8px; padding:24px; max-width:420px; width:calc(100% - 32px); text-align:center;">
+        <h3 style="color:var(--primary-cyan); margin-bottom:6px; letter-spacing:1px;">CHOOSE YOUR RESPAWN</h3>
+        <p id="respawn-timer" style="color:var(--text-muted); font-size:0.85rem; margin-bottom:16px;"></p>
+        <div id="respawn-options" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;"></div>
+      </div>`;
+    panel.style.display = 'flex';
+    if (document.pointerLockElement) document.exitPointerLock();
+
+    const list = panel.querySelector('#respawn-options');
+    const timerEl = panel.querySelector('#respawn-timer');
+    let done = false;
+    const choose = (sp) => {
+      if (done) return;
+      done = true;
+      this.finishRespawn(sp, true);
+    };
+    choices.forEach((sp, i) => {
+      const b = document.createElement('button');
+      b.className = 'sci-btn';
+      b.style.cssText = 'padding:10px 14px; font-size:0.8rem;';
+      b.textContent = `SPAWN ${i + 1}`;
+      b.addEventListener('click', () => choose(sp));
+      list.appendChild(b);
+    });
+
+    let left = 12;
+    timerEl.textContent = `Random safe spawn in ${left}s`;
+    this.respawnTimer = setInterval(() => {
+      left--;
+      timerEl.textContent = `Random safe spawn in ${left}s`;
+      if (left <= 0) {
+        clearInterval(this.respawnTimer);
+        this.respawnTimer = null;
+        choose(this.pickRespawnPoint());
+      }
+    }, 1000);
+  }
+
+  // While driving the remote car, WASD steers it and the camera follows from behind
+  updateCarView(delta) {
+    const r = this.gadgets.driveCar(delta, {
+      forward: this.controls.moveForward,
+      back: this.controls.moveBackward,
+      left: this.controls.moveLeft,
+      right: this.controls.moveRight
+    });
+    if (!r) {
+      // The car has ended: step out where it stopped
+      const last = this.gadgets.lastCar;
+      this.gadgets.lastCar = null;
+      if (last) this.controls.setPosition(last.x, last.y + 1.6, last.z);
+      return;
+    }
+    this.controls.yaw = r.heading;
+    this.camera.position.set(r.x + Math.sin(r.heading) * 6, r.y + 3.2, r.z + Math.cos(r.heading) * 6);
+    this.camera.rotation.set(-0.25, r.heading, 0, 'YXZ');
   }
 
   // While dead, the camera follows the killer's eyes, or tips over where you fell
@@ -1218,8 +1335,11 @@ class EventHorizonGame {
       this.controls.aimMultiplier = 1 - adsT * 0.5;
       this.scopeOverlay.style.opacity = String(Math.max(0, (adsT - 0.6) / 0.4));
 
+      this.gadgets.update(delta);
       if (this.isDead && this.deathView) {
         this.updateDeathView(now);
+      } else if (this.gadgets.car || this.gadgets.lastCar) {
+        this.updateCarView(delta);
       } else {
         this.controls.update(delta);
       }

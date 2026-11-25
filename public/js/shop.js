@@ -139,7 +139,7 @@ export class ShopManager {
     const owned = profile.unlockedAbilities || [];
 
     ABILITY_LIST.forEach((a) => {
-      const byLevel = (profile.level || 1) >= a.level;
+      const byLevel = a.level !== undefined && (profile.level || 1) >= a.level;
       const bought = owned.includes(a.id);
       const card = document.createElement('div');
       card.className = 'skin-card';
@@ -174,9 +174,9 @@ export class ShopManager {
         ['E', 'Q'].forEach((slot) => {
           const b = document.createElement('button');
           b.className = 'sci-btn';
-          b.style.cssText = 'flex:1; justify-content:center; padding:8px; font-size:0.8rem;';
+          b.style.cssText = 'flex:1; justify-content:center; padding:8px 4px; font-size:0.75rem; white-space:nowrap;';
           const current = (profile.equippedAbilities || {})[slot] === a.id;
-          b.textContent = (current ? 'IN SLOT ' : 'SET AS ') + slot;
+          b.textContent = (current ? 'IN ' : 'SET ') + slot;
           b.addEventListener('click', () => {
             this.auth.setEquippedAbility(slot, a.id);
             window.dispatchEvent(new CustomEvent('abilities_changed'));

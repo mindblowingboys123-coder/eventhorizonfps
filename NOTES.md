@@ -26,7 +26,9 @@ Read this first. Claude reads it at the start of each session, so keep it curren
 ## Movement and combat
 - Right mouse aims down sights (zoom, slower mouse, scope overlay). R reloads with an animation.
 - F fires the grappling hook. C crouches while held, and tapping C dashes or slides.
-- Respawns pick a random spawn far from living pilots, with a 2.5 second shield.
+- After dying you see the killer's view for 2 seconds, then choose a spawn (SPAWN 1-8, no living pilot within 15 metres). No choice in 12 seconds picks a random safe spawn. Shield lasts 2.5 seconds.
+- Abilities: E and Q slots, chosen in the Armory. Level abilities unlock with level; Remote Car, Blink, Turret, Proximity Mine and Decoy cost 20,000 CR each (public/js/abilities.js, public/js/gadgets.js).
+- Gadgets (car, turret, mine, decoy) are drawn for the player who placed them only. Their damage still reaches other pilots. Other players cannot see the models yet.
 
 ## Open items
 - Firestore is not created, so profile sync to Firestore fails. Create it in the Firebase console (Native mode).
