@@ -402,26 +402,117 @@
               <a class="sci-btn" href="changelog.html" style="display:inline-flex; padding:10px 16px; font-size:0.85rem; text-decoration:none;">📜 CHANGE LOG (GITHUB HISTORY)</a>
             </div>
 
-            <!-- REQUEST BOX: opens a GitHub issue with the request filled in (no key, no server) -->
+            <!-- REQUEST BOX: saves requests to the game database; the list below shows them -->
             <div style="background:rgba(0,240,255,0.06); border:1px solid rgba(0,240,255,0.25); border-radius:6px; padding:16px; margin-bottom:20px;">
               <h4 style="font-family:var(--font-display); color:var(--primary-cyan); margin-bottom:10px; letter-spacing:1px;">REQUEST A CHANGE</h4>
-              <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">Describe the change. Submit opens a GitHub issue with your text filled in. You need to be signed in to GitHub.</p>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">Describe the change and submit. It is saved to the game database, and the list below shows saved requests. You need to be signed in with Firebase Cloud.</p>
               <textarea id="request-box-text" class="sci-input" rows="4" placeholder="e.g. make the Mars dome door face east" style="width:100%; margin-bottom:10px;"></textarea>
-              <button class="sci-btn primary" id="request-box-submit" style="padding:10px 16px; font-size:0.85rem;">SUBMIT REQUEST</button>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="sci-btn primary" id="request-box-submit" style="padding:10px 16px; font-size:0.85rem;">SUBMIT REQUEST</button>
+                <button class="sci-btn" id="request-box-load" style="padding:10px 16px; font-size:0.85rem;">LOAD SAVED REQUESTS</button>
+                <span id="request-box-status" style="font-size:0.85rem; color:var(--text-muted);"></span>
+              </div>
+              <div id="request-box-list" style="margin-top:14px; display:flex; flex-direction:column; gap:8px;"></div>
             </div>
             <script>
               (function () {
-                var btn = document.getElementById('request-box-submit');
-                var box = document.getElementById('request-box-text');
-                if (!btn || !box) return;
-                btn.addEventListener('click', function () {
-                  var text = box.value.trim();
-                  if (!text) { alert('Type what you want changed first.'); return; }
-                  var title = 'Request: ' + text.split('\n')[0].slice(0, 90);
-                  var url = 'https://github.com/mindblowingboys123-coder/eventhorizonfps/issues/new'
-                    + '?title=' + encodeURIComponent(title)
-                    + '&body=' + encodeURIComponent(text);
-                  window.open(url, '_blank', 'noopener');
+                var SDK = '10.8.0';
+                var textEl = document.getElementById('request-box-text');
+                var submitBtn = document.getElementById('request-box-submit');
+                var loadBtn = document.getElementById('request-box-load');
+                var statusEl = document.getElementById('request-box-status');
+                var listEl = document.getElementById('request-box-list');
+                if (!textEl || !submitBtn) return;
+
+                function say(msg, ok) {
+                  statusEl.textContent = msg;
+                  statusEl.style.color = ok ? '#00ff88' : '#ff0055';
+                }
+
+                function loadScript(src) {
+                  return new Promise(function (resolve, reject) {
+                    var s = document.createElement('script');
+                    s.src = src;
+                    s.onload = resolve;
+                    s.onerror = function () { reject(new Error('Could not load ' + src)); };
+                    document.head.appendChild(s);
+                  });
+                }
+
+                // Uses the Firebase app that auth.js starts, and loads the database library if needed
+                function getDb() {
+                  if (!(window.firebase && window.firebase.apps && window.firebase.apps.length)) {
+                    return Promise.reject(new Error('Firebase is not ready yet.'));
+                  }
+                  if (window.firebase.database) return Promise.resolve(window.firebase.database());
+                  return loadScript('https://www.gstatic.com/firebasejs/' + SDK + '/firebase-database-compat.js')
+                    .then(function () { return window.firebase.database(); });
+                }
+
+                function signedInUser() {
+                  var user = window.firebase && window.firebase.auth ? window.firebase.auth().currentUser : null;
+                  if (!user) throw new Error('Sign in with Firebase Cloud first.');
+                  return user;
+                }
+
+                submitBtn.addEventListener('click', function () {
+                  var text = textEl.value.trim();
+                  if (!text) { say('Type what you want changed first.', false); return; }
+                  var user;
+                  try { user = signedInUser(); } catch (e) { say(e.message, false); return; }
+                  say('Saving...', true);
+                  getDb().then(function (db) {
+                    return db.ref('requests').push({
+                      text: text.substring(0, 2000),
+                      by: user.email || user.uid,
+                      t: window.firebase.database.ServerValue.TIMESTAMP
+                    });
+                  }).then(function () {
+                    textEl.value = '';
+                    say('Saved. Use LOAD SAVED REQUESTS to see the list.', true);
+                  }).catch(function (e) {
+                    say('Could not save: ' + e.message, false);
+                  });
+                });
+
+                function row(item) {
+                  var box = document.createElement('div');
+                  box.style.cssText = 'border:1px solid rgba(0,240,255,0.25); border-radius:4px; padding:10px; background:rgba(15,23,42,0.6);';
+                  var when = item.t ? new Date(item.t).toLocaleString() : 'unknown time';
+                  var meta = document.createElement('div');
+                  meta.style.cssText = 'font-size:0.75rem; color:var(--text-muted); margin-bottom:6px;';
+                  meta.textContent = when + ' · ' + (item.by || 'unknown');
+                  var body = document.createElement('div');
+                  body.style.cssText = 'white-space:pre-wrap; word-break:break-word; margin-bottom:8px;';
+                  body.textContent = item.text || '';
+                  var copy = document.createElement('button');
+                  copy.className = 'sci-btn';
+                  copy.style.cssText = 'padding:6px 10px; font-size:0.75rem;';
+                  copy.textContent = 'COPY';
+                  copy.addEventListener('click', function () {
+                    if (navigator.clipboard) navigator.clipboard.writeText(item.text || '');
+                    copy.textContent = 'COPIED';
+                  });
+                  box.appendChild(meta);
+                  box.appendChild(body);
+                  box.appendChild(copy);
+                  return box;
+                }
+
+                loadBtn.addEventListener('click', function () {
+                  say('Loading...', true);
+                  getDb().then(function (db) {
+                    return db.ref('requests').limitToLast(30).once('value');
+                  }).then(function (snap) {
+                    var items = [];
+                    snap.forEach(function (child) { items.push(child.val()); });
+                    items.sort(function (a, b) { return (b.t || 0) - (a.t || 0); });
+                    listEl.innerHTML = '';
+                    items.forEach(function (item) { listEl.appendChild(row(item)); });
+                    say(items.length ? items.length + ' saved request(s).' : 'No saved requests yet.', true);
+                  }).catch(function (e) {
+                    say('Could not load: ' + e.message, false);
+                  });
                 });
               })();
             </script>
