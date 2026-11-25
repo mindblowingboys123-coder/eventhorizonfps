@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EVENT HORIZON // Change Log</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { background: #05070d; color: #e2e8f0; font-family: system-ui, sans-serif; margin: 0; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-family: var(--font-display, sans-serif); color: #00f0ff; letter-spacing: 2px; margin: 0 0 6px; }
+    .sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 20px; }
+    .back { color: #00f0ff; text-decoration: none; font-size: 0.9rem; }
+    .entry { border: 1px solid rgba(0,240,255,0.25); border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; background: rgba(15,23,42,0.6); }
+    .msg { font-weight: bold; white-space: pre-wrap; word-break: break-word; }
+    .meta { color: #94a3b8; font-size: 0.8rem; margin-top: 6px; }
+    .meta a { color: #00f0ff; }
+    .status { color: #ffd166; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="index.html">&larr; Back to the game</a>
+    <h1>CHANGE LOG</h1>
+    <div class="sub">Every change pushed to the game, read live from GitHub.</div>
+    <div id="status" class="status">Loading...</div>
+    <div id="list"></div>
+  </div>
+  <script>
+    const REPO = 'mindblowingboys123-coder/eventhorizonfps';
+    const CACHE_KEY = 'eh-changelog';
+    const CACHE_MS = 5 * 60 * 1000; // 5 minutes, to stay within GitHub's free request limit
+    const statusEl = document.getElementById('status');
+    const listEl = document.getElementById('list');
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function render(commits) {
+      statusEl.textContent = commits.length ? '' : 'No changes yet.';
+      listEl.innerHTML = commits.map((c) => {
+        const msg = c.commit.message.split('\n')[0];
+        const date = new Date(c.commit.author.date).toLocaleString();
+        return `<div class="entry">
+          <div class="msg">${esc(msg)}</div>
+          <div class="meta">${esc(date)} · ${esc(c.commit.author.name || 'unknown')} · <a href="${esc(c.html_url)}" target="_blank" rel="noopener">view on GitHub</a></div>
+        </div>`;
+      }).join('');
+    }
+
+    function readCache() {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+        const v = JSON.parse(raw);
+        return Date.now() - v.at < CACHE_MS ? v.commits : null;
+      } catch (e) { return null; }
+    }
+
+    function writeCache(commits) {
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), commits })); } catch (e) { /* storage unavailable */ }
+    }
+
+    const cached = readCache();
+    if (cached) {
+      render(cached);
+    } else {
+      fetch(`https://api.github.com/repos/${REPO}/commits?sha=main&per_page=50`, { headers: { Accept: 'application/vnd.github+json' } })
+        .then((r) => {
+          if (!r.ok) throw new Error(r.status === 403 ? 'GitHub limit reached, try again later.' : 'GitHub returned ' + r.status);
+          return r.json();
+        })
+        .then((commits) => { writeCache(commits); render(commits); })
+        .catch((err) => { statusEl.textContent = 'Could not load the change log: ' + err.message; });
+    }
+  </script>
+</body>
+</html>
