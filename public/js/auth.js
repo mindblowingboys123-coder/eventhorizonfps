@@ -4,6 +4,9 @@ import { SKIN_DEFINITIONS } from './skins.js';
 import { WEAPON_DEFS } from './weapons.js';
 import { TRACER_OPTIONS } from './shop.js';
 
+// Only these verified Firebase accounts get admin rights
+const ADMIN_EMAILS = ['mindblowingboys123@gmail.com'];
+
 export class AuthManager {
   constructor() {
     this.storageKey = 'event_horizon_pilot_profile_v1';
@@ -35,6 +38,7 @@ export class AuthManager {
 
           // Listen for Firebase Auth state changes
           this.firebaseAuth.onAuthStateChanged(async (user) => {
+            this.applyAdminFromUser(user);
             if (user) {
               console.log('🔥 Firebase Cloud Pilot Verified:', user.displayName || user.email || user.uid);
               if (user.displayName) {
@@ -238,17 +242,22 @@ export class AuthManager {
   }
 
   // --- OVERLORD ADMIN CAPABILITIES ---
-  verifyAdmin(email, password) {
-    if (email && email.trim().toLowerCase() === 'hacker@gmail.com' && password === 'H@CK#R123!') {
+  // Admin comes only from a signed-in Firebase account with a verified admin email
+  isAdminUser(user) {
+    return !!(user && user.email && ADMIN_EMAILS.includes(user.email.trim().toLowerCase()) && user.emailVerified);
+  }
+
+  applyAdminFromUser(user) {
+    const isAdmin = this.isAdminUser(user);
+    if (isAdmin && !this.profile.isAdmin) {
       this.profile.isAdmin = true;
-      if (!this.profile.name.includes('HACKER')) {
-        this.profile.name = 'HACKER_OVERLORD';
-      }
       this.save();
       window.dispatchEvent(new CustomEvent('admin_unlocked', { detail: { isAdmin: true } }));
-      return true;
+    } else if (!isAdmin && this.profile.isAdmin) {
+      this.profile.isAdmin = false;
+      this.save();
     }
-    return false;
+    return isAdmin;
   }
 
   unlockAllCheats() {
@@ -288,38 +297,14 @@ export class AuthManager {
 
   // Firebase auth sign-in helpers in case user wants to call from code or console
   async signInWithEmail(email, password) {
-    // Check if admin credentials match
-    if (this.verifyAdmin(email, password)) {
-      console.log('⚡ OVERLORD ADMIN CREDENTIALS RECOGNIZED');
-    }
-
     if (!this.firebaseAuth) {
-      if (this.profile.isAdmin) {
-        return { user: { email: 'HACKER@gmail.com', uid: 'admin_overlord_uid', displayName: 'HACKER' } };
-      }
       throw new Error('Firebase not initialized. Check firebase-config.js');
     }
-
-    try {
-      return await this.firebaseAuth.signInWithEmailAndPassword(email, password);
-    } catch (err) {
-      // If admin logging in and account not yet in Firebase Console, grant admin access anyway!
-      if (this.profile.isAdmin) {
-        return { user: { email: 'HACKER@gmail.com', uid: 'admin_overlord_uid', displayName: 'HACKER' } };
-      }
-      throw err;
-    }
+    return await this.firebaseAuth.signInWithEmailAndPassword(email, password);
   }
 
   async signUpWithEmail(email, password, displayName) {
-    if (this.verifyAdmin(email, password)) {
-      console.log('⚡ OVERLORD ADMIN CREDENTIALS REGISTERED');
-    }
-
     if (!this.firebaseAuth) {
-      if (this.profile.isAdmin) {
-        return { user: { email: 'HACKER@gmail.com', uid: 'admin_overlord_uid', displayName: 'HACKER' } };
-      }
       throw new Error('Firebase not initialized. Check firebase-config.js');
     }
 
