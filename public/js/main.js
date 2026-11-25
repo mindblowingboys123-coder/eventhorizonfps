@@ -1149,6 +1149,8 @@ class EventHorizonGame {
     panel.style.display = 'flex';
     if (document.pointerLockElement) document.exitPointerLock();
     panel.querySelector('#respawn-button').addEventListener('click', () => {
+      // The click counts as a user gesture, so the mouse can be captured again for shooting
+      this.controls.lock();
       this.finishRespawn(this.pickRandomSpawn(), true);
     });
   }
