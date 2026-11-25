@@ -1113,7 +1113,6 @@ class EventHorizonGame {
 
   // Puts the player back in the world at a chosen spawn
   finishRespawn(sp, inMatch) {
-    if (this.respawnTimer) { clearInterval(this.respawnTimer); this.respawnTimer = null; }
     const panel = document.getElementById('respawn-picker');
     if (panel) panel.style.display = 'none';
     if (inMatch) this.multiplayer.sendRespawn();
@@ -1122,18 +1121,9 @@ class EventHorizonGame {
     if (inMatch) this.spawnShieldUntil = performance.now() + 2500;
   }
 
-  // Lets the pilot choose a spawn point that has no living pilot within 15 metres.
-  // If they do not choose in 12 seconds, a random safe spawn is used.
+  // Shows a RESPAWN button. Clicking it respawns at a random spawn point
+  // that has no living pilot within 15 metres (any spawn if none is clear).
   showRespawnPicker() {
-    const foes = this.multiplayer.getRemotePlayerMeshes().map((p) => p.mesh.position);
-    const spawns = this.maps.currentSpawns || [];
-    const safe = spawns.filter((s) => foes.every((f) => Math.hypot(f.x - s.x, f.z - s.z) >= 15));
-    const choices = (safe.length ? safe : spawns).slice(0, 8);
-    if (choices.length === 0) {
-      this.finishRespawn(this.pickRespawnPoint(), true);
-      return;
-    }
-
     let panel = document.getElementById('respawn-picker');
     if (!panel) {
       panel = document.createElement('div');
@@ -1142,42 +1132,25 @@ class EventHorizonGame {
       document.body.appendChild(panel);
     }
     panel.innerHTML = `
-      <div style="background:#05070d; border:1px solid var(--primary-cyan); border-radius:8px; padding:24px; max-width:420px; width:calc(100% - 32px); text-align:center;">
-        <h3 style="color:var(--primary-cyan); margin-bottom:6px; letter-spacing:1px;">CHOOSE YOUR RESPAWN</h3>
-        <p id="respawn-timer" style="color:var(--text-muted); font-size:0.85rem; margin-bottom:16px;"></p>
-        <div id="respawn-options" style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;"></div>
+      <div style="background:#05070d; border:1px solid var(--primary-cyan); border-radius:8px; padding:24px; max-width:360px; width:calc(100% - 32px); text-align:center;">
+        <h3 style="color:var(--primary-cyan); margin-bottom:16px; letter-spacing:1px;">YOU DIED</h3>
+        <button class="sci-btn primary" id="respawn-button" style="width:100%; justify-content:center; padding:12px;">RESPAWN</button>
       </div>`;
     panel.style.display = 'flex';
     if (document.pointerLockElement) document.exitPointerLock();
-
-    const list = panel.querySelector('#respawn-options');
-    const timerEl = panel.querySelector('#respawn-timer');
-    let done = false;
-    const choose = (sp) => {
-      if (done) return;
-      done = true;
-      this.finishRespawn(sp, true);
-    };
-    choices.forEach((sp, i) => {
-      const b = document.createElement('button');
-      b.className = 'sci-btn';
-      b.style.cssText = 'padding:10px 14px; font-size:0.8rem;';
-      b.textContent = `SPAWN ${i + 1}`;
-      b.addEventListener('click', () => choose(sp));
-      list.appendChild(b);
+    panel.querySelector('#respawn-button').addEventListener('click', () => {
+      this.finishRespawn(this.pickRandomSpawn(), true);
     });
+  }
 
-    let left = 12;
-    timerEl.textContent = `Random safe spawn in ${left}s`;
-    this.respawnTimer = setInterval(() => {
-      left--;
-      timerEl.textContent = `Random safe spawn in ${left}s`;
-      if (left <= 0) {
-        clearInterval(this.respawnTimer);
-        this.respawnTimer = null;
-        choose(this.pickRespawnPoint());
-      }
-    }, 1000);
+  // Random spawn point with no living pilot within 15 metres
+  pickRandomSpawn() {
+    const foes = this.multiplayer.getRemotePlayerMeshes().map((p) => p.mesh.position);
+    const spawns = this.maps.currentSpawns || [];
+    const safe = spawns.filter((s) => foes.every((f) => Math.hypot(f.x - s.x, f.z - s.z) >= 15));
+    const pool = safe.length ? safe : spawns;
+    if (pool.length === 0) return { x: 0, y: 4, z: 0 };
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   // While driving the remote car, WASD steers it and the camera follows from behind
