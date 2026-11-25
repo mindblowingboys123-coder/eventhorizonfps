@@ -402,6 +402,30 @@
               <a class="sci-btn" href="changelog.html" style="display:inline-flex; padding:10px 16px; font-size:0.85rem; text-decoration:none;">📜 CHANGE LOG (GITHUB HISTORY)</a>
             </div>
 
+            <!-- REQUEST BOX: opens a GitHub issue with the request filled in (no key, no server) -->
+            <div style="background:rgba(0,240,255,0.06); border:1px solid rgba(0,240,255,0.25); border-radius:6px; padding:16px; margin-bottom:20px;">
+              <h4 style="font-family:var(--font-display); color:var(--primary-cyan); margin-bottom:10px; letter-spacing:1px;">REQUEST A CHANGE</h4>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;">Describe the change. Submit opens a GitHub issue with your text filled in. You need to be signed in to GitHub.</p>
+              <textarea id="request-box-text" class="sci-input" rows="4" placeholder="e.g. make the Mars dome door face east" style="width:100%; margin-bottom:10px;"></textarea>
+              <button class="sci-btn primary" id="request-box-submit" style="padding:10px 16px; font-size:0.85rem;">SUBMIT REQUEST</button>
+            </div>
+            <script>
+              (function () {
+                var btn = document.getElementById('request-box-submit');
+                var box = document.getElementById('request-box-text');
+                if (!btn || !box) return;
+                btn.addEventListener('click', function () {
+                  var text = box.value.trim();
+                  if (!text) { alert('Type what you want changed first.'); return; }
+                  var title = 'Request: ' + text.split('\n')[0].slice(0, 90);
+                  var url = 'https://github.com/mindblowingboys123-coder/eventhorizonfps/issues/new'
+                    + '?title=' + encodeURIComponent(title)
+                    + '&body=' + encodeURIComponent(text);
+                  window.open(url, '_blank', 'noopener');
+                });
+              })();
+            </script>
+
             <!-- SECTION 4: SERVER BROADCAST -->
             <div style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:16px;">
               <h4 style="font-family:var(--font-display); color:#fff; margin-bottom:10px; letter-spacing:1px;">
