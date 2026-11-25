@@ -203,7 +203,7 @@ export class FPSControls {
 
     if (this.grants.fly) {
       // Flight: Space rises, C descends, no gravity
-      const flyTarget = ((this.flyUp ? 1 : 0) - (this.isCrouching ? 1 : 0)) * 14.0;
+      const flyTarget = ((this.flyUp ? 1 : 0) - (this.isCrouching ? 1 : 0)) * 28.0; // 2x vertical flight speed
       this.velocity.y += (flyTarget - this.velocity.y) * Math.min(1, delta * 8);
     } else {
       // Gravity
@@ -264,6 +264,7 @@ export class FPSControls {
     const speedMultipliers = [1, 1.5, 2.5, 4];
     const level = this.grants.speedLevel || 0;
     if (level > 0) baseSpeed *= speedMultipliers[level];
+    if (this.grants.fly) baseSpeed *= 2; // flight is 2x as fast
     else if (this.auth && this.auth.profile && this.auth.profile.superSpeed) baseSpeed *= 2.5;
 
     // Wading through the river slows you down
