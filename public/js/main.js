@@ -1203,6 +1203,78 @@ class EventHorizonGame {
     this.camera.lookAt(center);
   }
 
+  triggerPlayerShoot() {
+    const origin = this.camera.position.clone();
+    const dir = this.controls.getForwardDirection();
+    // Admin-only trail colour (other trails are not applied yet)
+    const equippedTrail = TRACER_OPTIONS.find(t => t.id === this.auth.profile.equippedTracer);
+    const trailColor = equippedTrail && equippedTrail.adminOnly && this.auth.profile.isAdmin ? equippedTrail.hex : null;
+    const shots = this.weapons.shoot(origin, dir, trailColor);
+
+    if (!shots) return; // out of ammo or reloading
+
+    // Broadcast shoot event in multiplayer
+    if (this.gameState === 'MULTIPLAYER') {
+      const activeWep = this.weapons.getActiveWeapon();
+      this.multiplayer.sendShoot(origin, dir, activeWep.id, trailColor || activeWep.tracerColor);
+    }
+
+    // Hitscan collision check
+    // Name tags are sprites, which need the camera to raycast safely
+    this.raycaster.camera = this.camera;
+    shots.forEach(shot => {
+      this.raycaster.set(shot.origin, shot.direction);
+
+      if (this.gameState === 'STORY') {
+        // Test hits on AI enemies and boss
+        const enemyMeshes = this.enemies.getEnemyMeshes();
+        const intersects = this.raycaster.intersectObjects(enemyMeshes, true);
+
+        if (intersects.length > 0) {
+          const hitMesh = intersects[0].object;
+          // Find root enemy
+          let root = hitMesh;
+          while (root.parent && root.parent !== this.scene) {
+            root = root.parent;
+          }
+
+          const targetEnemy = this.enemies.enemies.find(e => e.mesh === root) ||
+            (this.enemies.boss && this.enemies.boss.mesh === root ? this.enemies.boss : null);
+
+          if (targetEnemy) {
+            const res = this.enemies.damageEnemy(targetEnemy.id, shot.damage);
+            this.ui.triggerHitMarker();
+            this.sound.playHitMarker(res && res.isDead);
+
+            if (res && res.isDead) {
+              this.auth.recordKill();
+              this.ui.addKillFeed(this.auth.profile.name, targetEnemy.type.toUpperCase(), this.weapons.getActiveWeapon().name);
+            }
+          }
+        }
+      } else if (this.gameState === 'MULTIPLAYER') {
+        // Test hits on other players
+        const remotePlayers = this.multiplayer.getRemotePlayerMeshes();
+        const targets = remotePlayers.map(p => p.mesh);
+        const intersects = this.raycaster.intersectObjects(targets, true);
+
+        if (intersects.length > 0) {
+          let root = intersects[0].object;
+          while (root.parent && root.parent !== this.scene) {
+            root = root.parent;
+          }
+
+          const hitPlayer = remotePlayers.find(p => p.mesh === root);
+          if (hitPlayer) {
+            this.multiplayer.sendHit(hitPlayer.id, shot.damage, this.weapons.getActiveWeapon().id);
+            this.ui.triggerHitMarker();
+            this.sound.playHitMarker(false);
+          }
+        }
+      }
+    });
+  }
+
   animate() {
     requestAnimationFrame(this.animate);
 
