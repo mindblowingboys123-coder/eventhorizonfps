@@ -56,6 +56,7 @@ export class MapManager {
         break;
     }
 
+    this.addBlockOutlines(mapGroup);
     this.currentSpawns = spawnPoints;
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
@@ -653,7 +654,29 @@ export class MapManager {
     strip.position.set(x, 3.5, backZ + facing * (t / 2 + 0.06));
     group.add(strip);
 
+    this.buildHaloSecondFloor(group, x, z, facing, h, roofMat);
     this.buildHaloStairs(group, x, z, facing, h + 0.6, 1);
+  }
+
+  // Upper floor for a Halo building, reached by stairs inside the room that run up the
+  // left-hand wall. The floor covers the rest of the room, so the stairwell stays open.
+  buildHaloSecondFloor(group, x, z, facing, h, floorMat) {
+    const w = 16, d = 14, t = 0.8, hw = w / 2, hd = d / 2;
+    const H = Math.round((h * 0.5) / 0.6) * 0.6; // floor height, a whole number of steps
+    const innerLeft = x - hw + t;
+    const innerRight = x + hw - t;
+    const innerFront = z + facing * (hd - t);
+    const innerDepth = d - 2 * t;
+    const well = 2.5;                 // width of the stairwell
+    const sx0 = innerLeft + 0.2;      // stairwell runs from here...
+    const sx1 = sx0 + well;           // ...to here
+
+    // Stairs from the front of the room to the back, up to the floor height
+    this.buildStairRun(group, { axis: 'z', start: innerFront, length: innerDepth, dir: -facing, cross: (sx0 + sx1) / 2, width: well, baseY: 0, topY: H, mat: null });
+
+    // The floor: from the stairwell to the right-hand wall, top flush with the top step
+    const floorW = innerRight - sx1;
+    this.createPlatform(group, (sx1 + innerRight) / 2, H - 0.3, z, floorW, 0.6, innerDepth, floorMat);
   }
 
   // Stairs that wrap round the back of a Halo building and up its right-hand side.
@@ -783,6 +806,23 @@ export class MapManager {
     const mat = new THREE.PointsMaterial({ size: 1.5, color: color, transparent: true, opacity: 0.8 });
     const points = new THREE.Points(geo, mat);
     parent.add(points);
+  }
+
+  // Thin glowing edges on the solid blocks of every map, so the shapes are easy to read.
+  // Stairs, neon trims and thin strips are left alone.
+  addBlockOutlines(group) {
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.45 });
+    const blocks = [];
+    group.traverse((obj) => {
+      if (!obj.isMesh || !obj.geometry || obj.geometry.type !== 'BoxGeometry') return;
+      if (obj.material === sharedStairMat || obj.material.type === 'MeshBasicMaterial') return;
+      const p = obj.geometry.parameters;
+      if (Math.min(p.width, p.height, p.depth) < 0.6) return;
+      blocks.push(obj);
+    });
+    blocks.forEach((obj) => {
+      obj.add(new THREE.LineSegments(new THREE.EdgesGeometry(obj.geometry), edgeMat));
+    });
   }
 
   update(delta) {

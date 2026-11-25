@@ -327,6 +327,8 @@ export class MultiplayerClient {
           this.stats.kills += 1;
           this.writeMine({ kills: this.stats.kills });
         }
+        // A pilot who was just killed tips over for two seconds
+        if (f.victimId !== me && this.otherPlayers[f.victimId]) this.otherPlayers[f.victimId].dyingLeft = 2.0;
         // Your own death is shown by main.js, so skip it here
         if (f.victimId !== me) {
           window.dispatchEvent(new CustomEvent('kill_feed_event', {
@@ -431,7 +433,7 @@ export class MultiplayerClient {
       weapon: weapon || 'Plasma Rifle'
     });
     window.dispatchEvent(new CustomEvent('self_killed', {
-      detail: { killerName: killerName || 'The Void', victimName: this.myName, weapon: weapon }
+      detail: { killerId: killerId || null, killerName: killerName || 'The Void', victimName: this.myName, weapon: weapon }
     }));
   }
 
@@ -623,6 +625,7 @@ export class MultiplayerClient {
       model,
       targetPos: new THREE.Vector3(num(data.x), num(data.y), num(data.z)),
       targetRot: num(data.rotY),
+      pitch: num(data.rotX),
       isMoving: !!data.isMoving,
       health,
       kills: num(data.kills),
@@ -648,6 +651,7 @@ export class MultiplayerClient {
 
     if (d.x !== undefined) rp.targetPos.set(num(d.x), num(d.y), num(d.z));
     if (d.rotY !== undefined) rp.targetRot = num(d.rotY);
+    if (d.rotX !== undefined) rp.pitch = num(d.rotX);
     rp.isMoving = !!d.isMoving;
     if (d.health !== undefined) rp.health = num(d.health, rp.health);
     if (d.cloaked !== undefined) { rp.cloaked = !!d.cloaked; rp.model.visible = !rp.cloaked; }
@@ -676,6 +680,10 @@ export class MultiplayerClient {
       const rp = this.otherPlayers[id];
       rp.model.position.lerp(rp.targetPos, Math.min(1, delta * 15));
       rp.model.rotation.y += (rp.targetRot - rp.model.rotation.y) * Math.min(1, delta * 12);
+      // A pilot who was just killed tips over, then stands up when they respawn
+      if (rp.dyingLeft > 0) rp.dyingLeft = Math.max(0, rp.dyingLeft - delta);
+      const fall = rp.dyingLeft > 0 ? Math.min(1, (2.0 - rp.dyingLeft) / 0.4) : 0;
+      rp.model.rotation.x = -fall * Math.PI / 2;
       this.skins.animateModel(rp.model, delta, rp.isMoving);
     }
   }

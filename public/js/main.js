@@ -432,7 +432,7 @@ class EventHorizonGame {
     });
 
     window.addEventListener('self_killed', (e) => {
-      this.handlePlayerDeath(e.detail.killerName || 'The Void');
+      this.handlePlayerDeath(e.detail.killerName || 'The Void', e.detail.killerId || null);
     });
 
     window.addEventListener('player_fell_into_void', () => {
@@ -1050,7 +1050,7 @@ class EventHorizonGame {
     return pickSafeSpawn(this.maps.currentSpawns, foes);
   }
 
-  handlePlayerDeath(killer) {
+  handlePlayerDeath(killer, killerId = null) {
     if (this.isDead) return;
     this.isDead = true;
     this.auth.recordDeath();
@@ -1058,11 +1058,16 @@ class EventHorizonGame {
 
     this.ui.addKillFeed(killer, this.auth.profile.name, 'Vaporizer');
 
-    // Respawn after 2.5 seconds
+    // For 2 seconds: look through the killer's eyes, or fall over where you stand
+    this.deathView = { killerId: killerId, start: performance.now(), base: this.camera.position.clone() };
+
+    // Respawn after 2 seconds
     setTimeout(() => {
       if (this.gameState === 'MULTIPLAYER') {
         this.multiplayer.sendRespawn();
       }
+      this.deathView = null;
+      this.camera.rotation.set(this.controls.pitch, this.controls.yaw, 0, 'YXZ');
       this.resetVitals();
       const inMatch = this.gameState === 'MULTIPLAYER';
       const sp = inMatch
@@ -1070,7 +1075,22 @@ class EventHorizonGame {
         : (this.controls.voidRespawn || { x: 0, y: 4, z: 0 });
       this.controls.setPosition(sp.x, sp.y, sp.z);
       if (inMatch) this.spawnShieldUntil = performance.now() + 2500;
-    }, 2500);
+    }, 2000);
+  }
+
+  // While dead, the camera follows the killer's eyes, or tips over where you fell
+  updateDeathView(now) {
+    const dv = this.deathView;
+    const killer = dv.killerId ? this.multiplayer.otherPlayers[dv.killerId] : null;
+    if (killer) {
+      const p = killer.model.position;
+      this.camera.position.set(p.x, p.y + 1.6, p.z);
+      this.camera.rotation.set(killer.pitch || 0, killer.targetRot || 0, 0, 'YXZ');
+      return;
+    }
+    const t = Math.min(1, (now - dv.start) / 600);
+    this.camera.position.set(dv.base.x, dv.base.y - 1.2 * t, dv.base.z);
+    this.camera.rotation.set(this.controls.pitch + 0.9 * t, this.controls.yaw, 0.6 * t, 'YXZ');
   }
 
   triggerPlayerShoot() {
@@ -1193,7 +1213,11 @@ class EventHorizonGame {
       this.controls.aimMultiplier = 1 - adsT * 0.5;
       this.scopeOverlay.style.opacity = String(Math.max(0, (adsT - 0.6) / 0.4));
 
-      this.controls.update(delta);
+      if (this.isDead && this.deathView) {
+        this.updateDeathView(now);
+      } else {
+        this.controls.update(delta);
+      }
       this.weapons.update(delta, isMoving, this.controls.isSprinting);
       this.maps.update(delta);
 
