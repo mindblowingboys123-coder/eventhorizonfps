@@ -877,6 +877,15 @@ export class MapManager {
     line.position.set(0, 0.02, 0);
     group.add(west, east, line);
 
+    // Light for the plain (other maps have their own lights, this one had none)
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 2.2);
+    const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+    sun.position.set(200, 400, 150);
+    group.add(hemi, sun);
+
+    // Solid floor under the whole plain, so you land on it instead of falling through
+    this.addBoxCollider(0, -0.5, 0, 4000, 1, 4000);
+
     // Team garages (the car inside belongs to its team) and the jet hangar
     this.buildHollowRoom(group, { x: -150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: +1, wallMat, roofMat });
     this.buildHollowRoom(group, { x: 150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: -1, wallMat, roofMat });
