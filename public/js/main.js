@@ -514,10 +514,14 @@ class EventHorizonGame {
 
     // Admin Landscape Shift (For all players)
     document.querySelectorAll('.btn-admin-setmap').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const targetMap = btn.dataset.map || 'singularity';
-        if (this.multiplayer.isConnected) {
-          this.multiplayer.sendAdminAction('change_map', null, { map: targetMap });
+        try {
+          // Connects first, so the change is saved even from the main menu
+          await this.multiplayer.setRoomMap(targetMap);
+        } catch (e) {
+          alert('Could not change the map. ' + (e && e.message ? e.message : e));
+          return;
         }
         const mapData = this.maps.loadMap(targetMap);
         this.controls.setColliders(mapData.colliders);

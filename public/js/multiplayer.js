@@ -570,6 +570,14 @@ export class MultiplayerClient {
     }
   }
 
+  // Admin: saves the map for the room you are in, or the World Server from the menu
+  async setRoomMap(mapId) {
+    await this.connectAdminOnly();
+    const room = this.currentRoom || this.lastRoom || 'world-hub';
+    await this.db.ref(`rooms/${room}/meta/map`).set(String(mapId || 'singularity'));
+    return room;
+  }
+
   // Deletes every pilot record in the room you are in (or last were in). Live players reappear on their next move.
   async clearRoomPlayers() {
     const room = this.currentRoom || this.lastRoom || 'world-hub';
