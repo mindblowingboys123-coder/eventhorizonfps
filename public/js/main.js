@@ -1112,6 +1112,7 @@ class EventHorizonGame {
     if (roomId === 'mars-outpost') mapId = 'mars';
     if (roomId === 'cyber-void') mapId = 'cyber';
     if (roomId === 'halo-city') mapId = 'halo';
+    if (roomId === 'dogfight') mapId = 'dogfight';
 
     const mapData = this.maps.loadMap(mapId);
     this.controls.setColliders(mapData.colliders);
