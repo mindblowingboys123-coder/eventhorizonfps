@@ -13,6 +13,7 @@ import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
 import { GadgetManager } from './gadgets.js';
+import { DogfightManager } from './dogfight.js';
 const CATACLYSM_MS = 10 * 60 * 1000; // how long the centre floor stays broken
 const SHATTERED_SPAWN = { x: 0, y: 3, z: 0 }; // core island on the shattered floor map
 
@@ -98,6 +99,12 @@ class EventHorizonGame {
     this.enemies = new EnemyManager(this.scene, this.sound);
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
+    this.dogfight = new DogfightManager(this.scene, {
+      getPilots: () => this.multiplayer.getVehiclePilots(),
+      isBlocked: (x, z, feetY) => this.isBlockedAt(x, z, feetY),
+      notify: (text) => this.ui.addChatMessage('VEHICLE', text, true),
+      onExit: (p) => this.controls.setPosition(p.x, p.y + 1.6, p.z)
+    });
     this.gadgets = new GadgetManager(this.scene, {
       getPilots: () => this.multiplayer.getRemotePlayerMeshes(),
       sendHit: (id, dmg, weapon) => this.multiplayer.sendHit(id, dmg, weapon),
@@ -423,6 +430,12 @@ class EventHorizonGame {
         this.useAbility('Q');
       } else if (e.code === 'KeyX') {
         this.triggerSingularityCollapse();
+      } else if (e.code === 'KeyV') {
+        // Board or leave a jet or garage car (dogfight server only)
+        if (this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight') {
+          const boarded = this.dogfight.toggleBoard(this.camera.position, this.multiplayer.team);
+          if (boarded) this.controls.yaw = this.dogfight.hYaw;
+        }
       }
     });
 
@@ -1180,6 +1193,7 @@ class EventHorizonGame {
     if (this.isDead) return;
     this.isDead = true;
     if (this.strike) this.endAirstrike(null);
+    this.dogfight.forceExit();
     this.gadgets.clearAll();
     this.auth.recordDeath();
     this.sound.playPlayerHurt();
@@ -1248,11 +1262,50 @@ class EventHorizonGame {
   // Random spawn point with no living pilot within 15 metres
   pickRandomSpawn() {
     const foes = this.multiplayer.getRemotePlayerMeshes().map((p) => p.mesh.position);
-    const spawns = this.maps.currentSpawns || [];
+    let spawns = this.maps.currentSpawns || [];
+    // Dogfight: respawn on your own team's side
+    if (this.multiplayer.currentRoom === 'dogfight' && this.multiplayer.team) {
+      const side = this.multiplayer.team;
+      spawns = spawns.filter((s) => (side === 'red' ? s.x < 0 : s.x > 0));
+    }
     const safe = spawns.filter((s) => foes.every((f) => Math.hypot(f.x - s.x, f.z - s.z) >= 15));
     const pool = safe.length ? safe : spawns;
     if (pool.length === 0) return { x: 0, y: 4, z: 0 };
     return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // Dogfight: shows or hides the vehicles, keeps the score and round up to date, and shares
+  // your vehicle with other pilots. Runs every frame, whatever the game state.
+  dogfightFrame(delta) {
+    const inDog = this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight';
+    this.dogfight.setEnabled(inDog);
+    if (!inDog || !this.dogfight.active) {
+      this.multiplayer.vehicleInfo = null;
+      this.multiplayer.vehicleVeh = null;
+    }
+    if (!inDog) return;
+    this.dogfight.updateVisuals();
+    const t = performance.now();
+    if (t - (this.dogTickAt || 0) > 1000) {
+      this.dogTickAt = t;
+      this.multiplayer.tickDogfight();
+      this.dogfight.updateScore(this.multiplayer.score, this.multiplayer.round, this.multiplayer.now());
+    }
+  }
+
+  // Flying the jet or driving / riding the garage car: the camera sits in the vehicle
+  updateDogfightView(delta) {
+    const cam = this.dogfight.update(delta, {
+      forward: this.controls.moveForward,
+      back: this.controls.moveBackward,
+      left: this.controls.moveLeft,
+      right: this.controls.moveRight
+    }, { yaw: this.controls.yaw, pitch: this.controls.pitch });
+    this.multiplayer.vehicleInfo = this.dogfight.info;
+    this.multiplayer.vehicleVeh = this.dogfight.veh;
+    if (!cam) return;
+    this.camera.position.set(cam.x, cam.y, cam.z);
+    this.camera.rotation.set(cam.pitch, cam.yaw, 0, 'YXZ');
   }
 
   // While driving the remote car, WASD steers it and the camera follows from behind
@@ -1429,10 +1482,13 @@ class EventHorizonGame {
       this.scopeOverlay.style.opacity = String(Math.max(0, (adsT - 0.6) / 0.4));
 
       this.gadgets.update(delta);
+      this.dogfightFrame(delta);
       if (this.isDead && this.deathView) {
         this.updateDeathView(now);
       } else if (this.gadgets.car || this.gadgets.lastCar) {
         this.updateCarView(delta);
+      } else if (this.dogfight.active) {
+        this.updateDogfightView(delta);
       } else if (this.strike) {
         this.updateStrikeView();
       } else {

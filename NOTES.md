@@ -27,6 +27,12 @@ Read this first. Claude reads it at the start of each session, so keep it curren
 - Halo City has a treehouse at (140, 0), outside the city: stairs up to a hut on a platform.
 - The radar zooms out to fit every pilot on the map, and its canvas always matches its frame.
 
+- Dogfight server (room "dogfight", map "dogfight"): flat plain, red on the west (x<0), blue on the east. One jet hangar in the back (anyone can board), one garage car per team (only that team). Press V next to a vehicle to board or leave (leave only when stopped or landed).
+- Jet: mouse steers, W throttles (burns fuel), S brakes, ceiling 600 m, stalls and drops below 22 m/s, glides when out of fuel. HUD shows altitude and fuel.
+- Garage car: seat 0 drives (WASD), the turret follows the driver's mouse; seats 1-3 are passengers who shoot with their own aim. Empty vehicles return to their hangar or garage.
+- Teams: the team with fewer pilots gets the next join. Pilots cannot hit their own team. A kill adds 1 to the killer's team score in rooms/dogfight/score. First to 20 kills wins; otherwise a round ends after 5 minutes (higher score wins). A new round starts 10 seconds after a round ends.
+- Vehicle positions and aim are sent in each pilot's record (vehicle, veh, team). The database rules need score and round entries (see the README section of the change log).
+
 ## Movement and combat
 - Right mouse aims down sights (zoom, slower mouse, scope overlay). R reloads with an animation.
 - F fires the grappling hook. C crouches while held, and tapping C dashes or slides.

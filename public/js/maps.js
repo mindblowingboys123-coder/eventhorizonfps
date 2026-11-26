@@ -78,6 +78,9 @@ export class MapManager {
       case 'cyber':
         spawnPoints = this.buildCyberVoid(mapGroup);
         break;
+      case 'dogfight':
+        spawnPoints = this.buildDogfight(mapGroup);
+        break;
       case 'singularity':
       default:
         spawnPoints = this.buildSingularityCore(mapGroup);
@@ -852,11 +855,47 @@ export class MapManager {
     this.updateLandscape(playerPos);
   }
 
+  // ========================================================
+  // DOGFIGHT: a flat plain, red on the west and blue on the east, a jet hangar
+  // in the back and a garage for each team
+  // ========================================================
+  buildDogfight(group) {
+    const redGround = new THREE.MeshStandardMaterial({ color: 0x4a2a2a, roughness: 1 });
+    const blueGround = new THREE.MeshStandardMaterial({ color: 0x2a3a52, roughness: 1 });
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4256, roughness: 0.6, metalness: 0.3 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x2a3040, roughness: 0.7 });
+
+    const west = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), redGround);
+    west.rotation.x = -Math.PI / 2;
+    west.position.set(-1000, 0, 0);
+    const east = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), blueGround);
+    east.rotation.x = -Math.PI / 2;
+    east.position.set(1000, 0, 0);
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(3, 2000), lineMat);
+    line.rotation.x = -Math.PI / 2;
+    line.position.set(0, 0.02, 0);
+    group.add(west, east, line);
+
+    // Team garages (the car inside belongs to its team) and the jet hangar
+    this.buildHollowRoom(group, { x: -150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: +1, wallMat, roofMat });
+    this.buildHollowRoom(group, { x: 150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: -1, wallMat, roofMat });
+    this.buildHollowRoom(group, { x: 0, z: -200, w: 24, d: 24, h: 8, baseY: 0, facing: +1, wallMat, roofMat });
+
+    // Spawns are filtered by team in main.js (red on the west, blue on the east)
+    const spawns = [];
+    for (const z of [-30, -10, 10, 30]) {
+      spawns.push({ x: -60, y: 4, z });
+      spawns.push({ x: 60, y: 4, z });
+    }
+    return spawns;
+  }
+
   // ---------- Endless landscape ----------
   startLandscape(mapGroup, mapId) {
     const cfg = LANDSCAPE[mapId] || LANDSCAPE.singularity;
     // The first map (Singularity Core) gets no landscape floor, only its own platforms
-    if (mapId === 'singularity') {
+    if (mapId === 'singularity' || mapId === 'dogfight') {
       this.endless = null;
       this.scene.fog = null;
       return;

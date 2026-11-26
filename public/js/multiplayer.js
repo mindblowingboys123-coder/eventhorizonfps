@@ -9,10 +9,17 @@ const ROOMS = {
   'aegis-station': { name: 'Aegis Space Station Arena', map: 'station' },
   'mars-outpost':  { name: 'Mars Red Dunes Colony', map: 'mars' },
   'cyber-void':    { name: 'Cyber Void Jump Arena', map: 'cyber' },
-  'halo-city':     { name: 'Halo City River District', map: 'halo' }
+  'halo-city':     { name: 'Halo City River District', map: 'halo' },
+  'dogfight':      { name: 'Dogfight - Red vs Blue', map: 'dogfight' }
 };
 
+// Dogfight rounds
+const ROUND_MS = 5 * 60 * 1000; // a round lasts 5 minutes...
+const WIN_PAUSE_MS = 10000;     // ...then a 10 second pause before the next one
+const WIN_KILLS = 20;           // or the first team to 20 kills wins
+
 const SPAWN_POINTS = {
+  dogfight: [{ x: -60, y: 4, z: -30 }, { x: -60, y: 4, z: 30 }, { x: 60, y: 4, z: -30 }, { x: 60, y: 4, z: 30 }],
   singularity: [
     { x: 0, y: 3, z: 0 }, { x: 25, y: 5, z: 25 }, { x: -25, y: 5, z: -25 },
     { x: 30, y: 6, z: -30 }, { x: -30, y: 6, z: 30 }
@@ -55,8 +62,10 @@ function clean(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-function randomSpawn(map) {
-  const points = SPAWN_POINTS[map] || SPAWN_POINTS.singularity;
+function randomSpawn(map, team) {
+  let points = SPAWN_POINTS[map] || SPAWN_POINTS.singularity;
+  // Dogfight: red starts on the west side, blue on the east side
+  if (map === 'dogfight' && team) points = points.filter((p) => (team === 'red' ? p.x < 0 : p.x > 0));
   const pt = points[Math.floor(Math.random() * points.length)];
   return {
     x: pt.x + (Math.random() * 4 - 2),
@@ -217,8 +226,9 @@ export class MultiplayerClient {
     this.vitals = { health: 100, shield: 50 };
     this.dead = false;
     this.stats = { kills: 0, deaths: 0 };
+    this.team = room === 'dogfight' ? await this.chooseTeam() : null;
 
-    const spawn = randomSpawn(await this.currentMapId(room));
+    const spawn = randomSpawn(await this.currentMapId(room), this.team);
     this.myRef = this.db.ref(`rooms/${room}/players/${user.uid}`);
 
     // If this browser closes or drops off the internet, Firebase removes this pilot automatically
@@ -343,6 +353,10 @@ export class MultiplayerClient {
     // Room map and Singularity Collapse share one value (meta/map), so they always arrive together
     let roomPrimed = false;
     let lastRoomRaw = null;
+    if (room === 'dogfight') {
+      this.listen(R('score'), 'value', (snap) => { this.score = snap.val() || { red: 0, blue: 0 }; });
+      this.listen(R('round'), 'value', (snap) => { this.round = snap.val() || null; });
+    }
     this.listen(R('meta/map'), 'value', (snap) => {
       const raw = snap.val() ? String(snap.val()) : null;
       if (raw === lastRoomRaw) return;
@@ -431,10 +445,85 @@ export class MultiplayerClient {
     };
   }
 
+  // ---------- dogfight: teams, kills and rounds ----------
+  // The team with fewer pilots gets the next one
+  async chooseTeam() {
+    let red = 0;
+    let blue = 0;
+    try {
+      const snap = await this.db.ref('rooms/dogfight/players').once('value');
+      const all = snap.val() || {};
+      for (const uid of Object.keys(all)) {
+        if (uid === this.myUid || !all[uid]) continue;
+        if (all[uid].team === 'red') red++;
+        else if (all[uid].team === 'blue') blue++;
+      }
+    } catch (e) {
+      console.warn('Could not count the teams', e);
+    }
+    return red <= blue ? 'red' : 'blue';
+  }
+
+  // Your death counts as a kill for the killer's team (the victim's client saves it, once)
+  dogfightKill(killerId) {
+    if (this.currentRoom !== 'dogfight' || !killerId || !this.db) return;
+    const killer = this.otherPlayers[killerId];
+    const team = killer && killer.team;
+    if (!team) return;
+    this.db.ref(`rooms/dogfight/score/${team}`)
+      .transaction((v) => (Number(v) || 0) + 1)
+      .then((res) => {
+        if (res.committed && Number(res.snapshot.val()) >= WIN_KILLS) this.endRound(team);
+      })
+      .catch((e) => console.warn('Score not saved', e));
+  }
+
+  endRound(winner) {
+    this.db.ref('rooms/dogfight/round').transaction((cur) => {
+      if (!cur || cur.winner) return cur;
+      return { ...cur, winner, won: this.now() };
+    }).catch((e) => console.warn('Round not ended', e));
+  }
+
+  // Called about once a second on the dogfight server: starts, ends and restarts rounds
+  tickDogfight() {
+    if (this.currentRoom !== 'dogfight' || !this.db) return;
+    const now = this.now();
+    const round = this.round;
+    const roundRef = this.db.ref('rooms/dogfight/round');
+    if (!round) {
+      roundRef.transaction((cur) => cur || { n: 1, end: now + ROUND_MS, winner: null, won: null }).catch(() => {});
+      return;
+    }
+    if (!round.winner && round.end && now >= round.end) {
+      const s = this.score || {};
+      const red = Number(s.red) || 0;
+      const blue = Number(s.blue) || 0;
+      this.endRound(red === blue ? 'draw' : (red > blue ? 'red' : 'blue'));
+      return;
+    }
+    if (round.winner && round.won && now >= round.won + WIN_PAUSE_MS) {
+      roundRef.transaction((cur) => {
+        if (!cur || !cur.winner || now < (cur.won || 0) + WIN_PAUSE_MS) return cur;
+        return { n: (cur.n || 1) + 1, end: now + ROUND_MS, winner: null, won: null };
+      }).then((res) => {
+        if (res.committed) this.db.ref('rooms/dogfight/score').set({ red: 0, blue: 0 });
+      }).catch(() => {});
+    }
+  }
+
+  // Pilots in vehicles, for the dogfight vehicles to draw and to count seats
+  getVehiclePilots() {
+    return Object.values(this.otherPlayers)
+      .filter((p) => p.vehicle && p.veh)
+      .map((p) => ({ id: p.id, vehicle: p.vehicle, veh: p.veh, team: p.team }));
+  }
+
   die(killerId, killerName, weapon) {
     this.dead = true;
     this.stats.deaths += 1;
     this.writeMine({ deaths: this.stats.deaths, dead: true });
+    this.dogfightKill(killerId);
     this.postFeed(this.currentRoom, {
       kind: 'kill',
       killerId: killerId || '',
@@ -510,7 +599,10 @@ export class MultiplayerClient {
       health: num(this.vitals.health, 100),
       shield: num(this.vitals.shield, 50),
       cloaked: this.cloaked,
-      dead: !!this.dead
+      dead: !!this.dead,
+      team: this.team || null,
+      vehicle: this.vehicleInfo || null,
+      veh: this.vehicleVeh || null
     });
   }
 
@@ -643,7 +735,7 @@ export class MultiplayerClient {
     hitbox.name = 'pilot-hitbox';
     model.add(hitbox);
     this.scene.add(model);
-    model.visible = !data.cloaked && !data.dead;
+    model.visible = !data.cloaked && !data.dead && !data.vehicle;
     this.skins.updateNametag(model, name, health, 100);
 
     this.otherPlayers[data.id] = {
@@ -659,7 +751,10 @@ export class MultiplayerClient {
       kills: num(data.kills),
       deaths: num(data.deaths),
       score: num(data.kills) * 100,
-      cloaked: !!data.cloaked
+      cloaked: !!data.cloaked,
+      team: data.team || null,
+      vehicle: data.vehicle || null,
+      veh: data.veh || null
     };
   }
 
@@ -680,11 +775,14 @@ export class MultiplayerClient {
     if (d.x !== undefined) rp.targetPos.set(num(d.x), num(d.y), num(d.z));
     if (d.rotY !== undefined) rp.targetRot = num(d.rotY);
     if (d.rotX !== undefined) rp.pitch = num(d.rotX);
+    if (d.team !== undefined) rp.team = d.team || null;
+    if (d.vehicle !== undefined) rp.vehicle = d.vehicle || null;
+    if (d.veh !== undefined) rp.veh = d.veh || null;
     rp.isMoving = !!d.isMoving;
     if (d.health !== undefined) rp.health = num(d.health, rp.health);
     if (d.dead !== undefined) rp.dead = !!d.dead;
     if (d.cloaked !== undefined) rp.cloaked = !!d.cloaked;
-    rp.model.visible = !rp.cloaked && !rp.dead;
+    rp.model.visible = !rp.cloaked && !rp.dead && !rp.vehicle;
     if (d.kills !== undefined) { rp.kills = num(d.kills); rp.score = rp.kills * 100; }
     if (d.deaths !== undefined) rp.deaths = num(d.deaths);
     if (d.name) rp.name = d.name;
@@ -716,7 +814,7 @@ export class MultiplayerClient {
 
   getRemotePlayerMeshes() {
     // Cloaked and dead pilots cannot be shot
-    return Object.values(this.otherPlayers).filter((p) => !p.cloaked && !p.dead).map((p) => ({
+    return Object.values(this.otherPlayers).filter((p) => !p.cloaked && !p.dead && !(this.currentRoom === 'dogfight' && this.team && p.team === this.team)).map((p) => ({
       id: p.id,
       mesh: p.model,
       name: p.name
