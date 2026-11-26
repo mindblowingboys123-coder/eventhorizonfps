@@ -14,13 +14,14 @@ function stairMaterial() {
 // ---- Endless landscape ----
 // Each map has a ground colour, fog, the props that repeat forever, and a core
 // square (no props inside it, where the hand-built map is).
+// The ground colour matches each map's own floor, so the edge does not show.
 const LANDSCAPE = {
-  halo:        { ground: 0x2c5a34, fog: 0x0b1a10, core: 100, prop: 'tree', reserved: [{ x: 140, z: 0, r: 9 }] },
-  mars:        { ground: 0x7a3f22, fog: 0x2a1408, core: 110, prop: 'boulder' },
-  station:     { ground: 0x1a2232, fog: 0x05070d, core: 90,  prop: 'rock' },
-  cyber:       { ground: 0x0b0f1a, fog: 0x05070d, core: 70,  prop: 'crystal' },
-  shattered:   { ground: 0x101522, fog: 0x05070d, core: 90,  prop: 'rubble' },
-  singularity: { ground: 0x0a0d18, fog: 0x05070d, core: 80,  prop: 'rock' }
+  halo:        { ground: 0x3a3f55, fog: 0x0b0e1a, core: 120, prop: 'tree', reserved: [{ x: 140, z: 0, r: 9 }] },
+  mars:        { ground: 0x8a4a2a, fog: 0x2a1408, core: 110, prop: 'boulder' },
+  station:     { ground: 0x3b4558, fog: 0x0a0d18, core: 90,  prop: 'crate' },
+  cyber:       { ground: 0x1f1b38, fog: 0x0a0912, core: 70,  prop: 'crystal' },
+  shattered:   { ground: 0x2b3347, fog: 0x0a0d18, core: 90,  prop: 'rubble' },
+  singularity: { ground: 0x2a3046, fog: 0x0a0d18, core: 80,  prop: 'pillar' }
 };
 const LANDSCAPE_Y = -0.2;   // just under every map floor
 const CELL = 40;            // metres per chunk of props
@@ -861,7 +862,7 @@ export class MapManager {
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = LANDSCAPE_Y;
     mapGroup.add(ground);
-    this.scene.fog = new THREE.Fog(cfg.fog, 70, 240);
+    this.scene.fog = new THREE.Fog(cfg.fog, 110, 320);
 
     // Shared geometry and materials for every prop of this map
     const A = {
@@ -876,7 +877,11 @@ export class MapManager {
       crystal: new THREE.ConeGeometry(0.6, 4, 4),
       crystalMat: new THREE.MeshStandardMaterial({ color: 0x00f0ff, emissive: 0x00f0ff, emissiveIntensity: 0.6 }),
       rubble: new THREE.BoxGeometry(1.2, 0.8, 1.0),
-      rubbleMat: new THREE.MeshStandardMaterial({ color: 0x3a3f4d, roughness: 0.8 })
+      rubbleMat: new THREE.MeshStandardMaterial({ color: 0x3a3f4d, roughness: 0.8 }),
+      crate: new THREE.BoxGeometry(1.6, 1.6, 1.6),
+      crateMat: new THREE.MeshStandardMaterial({ color: 0x5b6474, roughness: 0.6, metalness: 0.4 }),
+      pillar: new THREE.CylinderGeometry(0.6, 0.6, 6, 8),
+      pillarMat: new THREE.MeshStandardMaterial({ color: 0x2a3146, emissive: 0x00f0ff, emissiveIntensity: 0.25, roughness: 0.5, metalness: 0.5 })
     };
 
     this.endless = {
@@ -917,6 +922,17 @@ export class MapManager {
       m.position.y = 2 * s; m.scale.setScalar(s);
       g.add(m);
       box = { cy: 2 * s, sx: 1.2 * s, sy: 4 * s, sz: 1.2 * s };
+    } else if (kind === 'crate') {
+      const m = new THREE.Mesh(A.crate, A.crateMat);
+      m.position.y = 0.8 * s; m.scale.setScalar(s);
+      m.rotation.y = yaw;
+      g.add(m);
+      box = { cy: 0.8 * s, sx: 1.6 * s, sy: 1.6 * s, sz: 1.6 * s };
+    } else if (kind === 'pillar') {
+      const m = new THREE.Mesh(A.pillar, A.pillarMat);
+      m.position.y = 3 * s; m.scale.setScalar(s);
+      g.add(m);
+      box = { cy: 3 * s, sx: 1.2 * s, sy: 6 * s, sz: 1.2 * s };
     } else if (kind === 'rubble') {
       const m = new THREE.Mesh(A.rubble, A.rubbleMat);
       m.position.y = 0.4 * s; m.scale.setScalar(s);
@@ -935,7 +951,10 @@ export class MapManager {
       const x = (cx + rng()) * CELL;
       const z = (cz + rng()) * CELL;
       // Keep the hand-built map area clear, and any reserved spots (like the treehouse)
-      if (Math.max(Math.abs(x), Math.abs(z)) < e.cfg.core) continue;
+      const excess = Math.max(Math.abs(x), Math.abs(z)) - e.cfg.core;
+      if (excess < 0) continue;
+      // Props thin out near the map and fill in farther away, so the edge fades in
+      if (rng() > Math.min(1, excess / 80)) continue;
       if ((e.cfg.reserved || []).some((r) => Math.hypot(x - r.x, z - r.z) < r.r)) continue;
       const prop = this.makeProp(e.cfg.prop, x, z, rng);
       group.add(prop.group);
