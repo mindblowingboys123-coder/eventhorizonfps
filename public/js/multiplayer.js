@@ -206,6 +206,10 @@ export class MultiplayerClient {
     const room = ROOMS[roomId] ? roomId : 'world-hub';
     this.startClock();
 
+    // Stop listening to the room we were in before, so its events cannot reach this one
+    this.listenerCleanups.forEach((off) => { try { off(); } catch (e) { /* already closed */ } });
+    this.listenerCleanups = [];
+
     this.currentRoom = room;
     this.myUid = user.uid;
     this.selfId = user.uid;
@@ -345,6 +349,8 @@ export class MultiplayerClient {
       lastRoomRaw = raw;
       const firstTime = !roomPrimed;
       roomPrimed = true;
+      // Only the room you are in may change your map
+      if (room !== this.currentRoom) return;
       window.dispatchEvent(new CustomEvent('room_state', {
         detail: { ...this.parseRoomMap(raw), firstTime }
       }));
