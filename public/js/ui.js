@@ -207,10 +207,26 @@ export class UIManager {
   renderRadar(playerPos, playerYaw, targets = []) {
     if (!this.radarCtx || !this.radarCanvas) return;
     const ctx = this.radarCtx;
-    const w = this.radarCanvas.width;
-    const h = this.radarCanvas.height;
+
+    // Match the canvas to its frame exactly, with sharp pixels on high-density screens
+    const dpr = window.devicePixelRatio || 1;
+    const size = Math.max(1, Math.round(this.radarCanvas.clientWidth || 130));
+    const px = Math.round(size * dpr);
+    if (this.radarCanvas.width !== px || this.radarCanvas.height !== px) {
+      this.radarCanvas.width = px;
+      this.radarCanvas.height = px;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = size;
+    const h = size;
     const center = w / 2;
-    const range = 50; // radar range radius in meters
+
+    // The radar zooms out so that every pilot on the map fits, never less than 50 metres
+    let range = 50;
+    for (const t of targets) {
+      const d = Math.hypot(t.x - playerPos.x, t.z - playerPos.z);
+      if (d + 5 > range) range = d + 5;
+    }
 
     ctx.clearRect(0, 0, w, h);
 
@@ -253,12 +269,10 @@ export class UIManager {
       const px = center + (rx / range) * center;
       const py = center + (rz / range) * center;
 
-      if (px > 2 && px < w - 2 && py > 2 && py < h - 2) {
-        ctx.fillStyle = t.isEnemy ? '#ff0055' : '#00f0ff';
-        ctx.beginPath();
-        ctx.arc(px, py, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      ctx.fillStyle = t.isEnemy ? '#ff0055' : '#00f0ff';
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fill();
     });
   }
 

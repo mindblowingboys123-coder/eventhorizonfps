@@ -11,6 +11,33 @@ function stairMaterial() {
   return sharedStairMat;
 }
 
+// ---- Endless landscape ----
+// Each map has a ground colour, fog, the props that repeat forever, and a core
+// square (no props inside it, where the hand-built map is).
+const LANDSCAPE = {
+  halo:        { ground: 0x2c5a34, fog: 0x0b1a10, core: 100, prop: 'tree', reserved: [{ x: 140, z: 0, r: 9 }] },
+  mars:        { ground: 0x7a3f22, fog: 0x2a1408, core: 110, prop: 'boulder' },
+  station:     { ground: 0x1a2232, fog: 0x05070d, core: 90,  prop: 'rock' },
+  cyber:       { ground: 0x0b0f1a, fog: 0x05070d, core: 70,  prop: 'crystal' },
+  shattered:   { ground: 0x101522, fog: 0x05070d, core: 90,  prop: 'rubble' },
+  singularity: { ground: 0x0a0d18, fog: 0x05070d, core: 80,  prop: 'rock' }
+};
+const LANDSCAPE_Y = -0.2;   // just under every map floor
+const CELL = 40;            // metres per chunk of props
+const CELL_RADIUS = 3;      // chunks kept loaded around the player
+const PROPS_PER_CELL = 4;
+
+// Small seeded random generator, so each chunk always looks the same
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export class MapManager {
   constructor(scene) {
     this.scene = scene;
@@ -57,6 +84,7 @@ export class MapManager {
     }
 
     this.addBlockOutlines(mapGroup);
+    this.startLandscape(mapGroup, mapId);
     this.currentSpawns = spawnPoints;
     this.scene.add(mapGroup);
     this.currentMapGroup = mapGroup;
@@ -548,6 +576,9 @@ export class MapManager {
     this.createJumpPad(group, -60, 0.15, -18, 0x9d4edd);
     this.createJumpPad(group, 60, 0.15, 18, 0x9d4edd);
 
+    // A treehouse in a tree out past the city, on the east side
+    this.buildTreehouse(group, 140, 0);
+
     // A ring of light high above the city
     const ring = new THREE.Mesh(new THREE.TorusGeometry(260, 5, 16, 160), new THREE.MeshBasicMaterial({ color: 0x9d4edd }));
     ring.rotation.x = Math.PI / 2;
@@ -812,11 +843,166 @@ export class MapManager {
     });
   }
 
-  update(delta) {
+  update(delta, playerPos = null) {
     for (let i = 0; i < this.animatedObjects.length; i++) {
       this.animatedObjects[i].update(delta);
     }
     this.animatedObjects = this.animatedObjects.filter((o) => !o.done);
+    this.updateLandscape(playerPos);
+  }
+
+  // ---------- Endless landscape ----------
+  startLandscape(mapGroup, mapId) {
+    const cfg = LANDSCAPE[mapId] || LANDSCAPE.singularity;
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(8000, 8000),
+      new THREE.MeshStandardMaterial({ color: cfg.ground, roughness: 0.95 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = LANDSCAPE_Y;
+    mapGroup.add(ground);
+    this.scene.fog = new THREE.Fog(cfg.fog, 70, 240);
+
+    // Shared geometry and materials for every prop of this map
+    const A = {
+      trunk: new THREE.BoxGeometry(0.7, 4, 0.7),
+      trunkMat: new THREE.MeshStandardMaterial({ color: 0x5a3a1e, roughness: 1 }),
+      crown: new THREE.IcosahedronGeometry(2.2, 1),
+      crownMat: new THREE.MeshStandardMaterial({ color: 0x2f8f3a, roughness: 0.9 }),
+      boulder: new THREE.IcosahedronGeometry(1.6, 0),
+      boulderMat: new THREE.MeshStandardMaterial({ color: 0x9a6a4a, roughness: 1 }),
+      rock: new THREE.DodecahedronGeometry(1.4, 0),
+      rockMat: new THREE.MeshStandardMaterial({ color: 0x5b6474, roughness: 0.9 }),
+      crystal: new THREE.ConeGeometry(0.6, 4, 4),
+      crystalMat: new THREE.MeshStandardMaterial({ color: 0x00f0ff, emissive: 0x00f0ff, emissiveIntensity: 0.6 }),
+      rubble: new THREE.BoxGeometry(1.2, 0.8, 1.0),
+      rubbleMat: new THREE.MeshStandardMaterial({ color: 0x3a3f4d, roughness: 0.8 })
+    };
+
+    this.endless = {
+      cfg, A, mapGroup,
+      cells: new Map(),
+      lastCx: null, lastCz: null
+    };
+  }
+
+  // Makes one prop; returns its group and the solid box (centre, size) if it has one
+  makeProp(kind, x, z, rng) {
+    const A = this.endless.A;
+    const g = new THREE.Group();
+    const s = 0.8 + rng() * 0.6;
+    const yaw = rng() * Math.PI * 2;
+    g.position.set(x, 0, z);
+    g.rotation.y = yaw;
+    let box = null;
+
+    if (kind === 'tree') {
+      const trunk = new THREE.Mesh(A.trunk, A.trunkMat);
+      trunk.position.y = 2 * s; trunk.scale.setScalar(s);
+      const crown = new THREE.Mesh(A.crown, A.crownMat);
+      crown.position.y = 5.2 * s; crown.scale.setScalar(s);
+      g.add(trunk, crown);
+      box = { cy: 2 * s, sx: 0.8 * s, sy: 4 * s, sz: 0.8 * s };
+    } else if (kind === 'boulder' || kind === 'rock') {
+      const geo = kind === 'boulder' ? A.boulder : A.rock;
+      const mat = kind === 'boulder' ? A.boulderMat : A.rockMat;
+      const m = new THREE.Mesh(geo, mat);
+      m.position.y = 1.0 * s;
+      m.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+      m.scale.set(s, s * 0.8, s);
+      g.add(m);
+      box = { cy: 0.9 * s, sx: 2.4 * s, sy: 1.8 * s, sz: 2.4 * s };
+    } else if (kind === 'crystal') {
+      const m = new THREE.Mesh(A.crystal, A.crystalMat);
+      m.position.y = 2 * s; m.scale.setScalar(s);
+      g.add(m);
+      box = { cy: 2 * s, sx: 1.2 * s, sy: 4 * s, sz: 1.2 * s };
+    } else if (kind === 'rubble') {
+      const m = new THREE.Mesh(A.rubble, A.rubbleMat);
+      m.position.y = 0.4 * s; m.scale.setScalar(s);
+      g.add(m);
+      box = { cy: 0.4 * s, sx: 1.2 * s, sy: 0.8 * s, sz: 1.0 * s };
+    }
+    return { group: g, box };
+  }
+
+  buildCell(cx, cz) {
+    const e = this.endless;
+    const rng = mulberry32((Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663)) >>> 0);
+    const group = new THREE.Group();
+    const boxes = [];
+    for (let i = 0; i < PROPS_PER_CELL; i++) {
+      const x = (cx + rng()) * CELL;
+      const z = (cz + rng()) * CELL;
+      // Keep the hand-built map area clear, and any reserved spots (like the treehouse)
+      if (Math.max(Math.abs(x), Math.abs(z)) < e.cfg.core) continue;
+      if ((e.cfg.reserved || []).some((r) => Math.hypot(x - r.x, z - r.z) < r.r)) continue;
+      const prop = this.makeProp(e.cfg.prop, x, z, rng);
+      group.add(prop.group);
+      if (prop.box) {
+        const b = prop.box;
+        const before = this.colliders.length;
+        this.addBoxCollider(x, b.cy, z, b.sx, b.sy, b.sz);
+        boxes.push(this.colliders[before]);
+      }
+    }
+    e.mapGroup.add(group);
+    e.cells.set(cx + ',' + cz, { group, boxes });
+  }
+
+  unloadCell(key) {
+    const e = this.endless;
+    const cell = e.cells.get(key);
+    if (!cell) return;
+    e.mapGroup.remove(cell.group);
+    for (const box of cell.boxes) {
+      const i = this.colliders.indexOf(box);
+      if (i !== -1) this.colliders.splice(i, 1);
+    }
+    e.cells.delete(key);
+  }
+
+  updateLandscape(playerPos) {
+    const e = this.endless;
+    if (!e || !playerPos) return;
+    const cx = Math.floor(playerPos.x / CELL);
+    const cz = Math.floor(playerPos.z / CELL);
+    if (cx === e.lastCx && cz === e.lastCz) return;
+    e.lastCx = cx;
+    e.lastCz = cz;
+
+    const wanted = new Set();
+    for (let dx = -CELL_RADIUS; dx <= CELL_RADIUS; dx++) {
+      for (let dz = -CELL_RADIUS; dz <= CELL_RADIUS; dz++) {
+        const key = (cx + dx) + ',' + (cz + dz);
+        wanted.add(key);
+        if (!e.cells.has(key)) this.buildCell(cx + dx, cz + dz);
+      }
+    }
+    for (const key of [...e.cells.keys()]) {
+      if (!wanted.has(key)) this.unloadCell(key);
+    }
+  }
+
+  // A tree with a treehouse on top, reached by stairs
+  buildTreehouse(group, x, z) {
+    const bark = new THREE.MeshStandardMaterial({ color: 0x5a3a1e, roughness: 1 });
+    const leaves = new THREE.MeshStandardMaterial({ color: 0x2f8f3a, roughness: 0.9 });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a2e, roughness: 0.9 });
+
+    const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.2, 8, 1.2), bark);
+    trunk.position.set(x, 4, z);
+    group.add(trunk);
+    this.addBoxCollider(x, 4, z, 1.2, 8, 1.2);
+
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(3.5, 1), leaves);
+    crown.position.set(x, 9, z);
+    group.add(crown);
+
+    // Platform at height 6.5, with the stairs running up to it along x
+    this.createPlatform(group, x, 6, z, 7, 1, 7, wood, wood);
+    this.buildStairRun(group, { axis: 'x', start: x - 11, length: 7.5, dir: +1, cross: z, width: 2.5, baseY: 0, topY: 6.5, mat: null });
+    this.buildHollowRoom(group, { x, z, w: 4, d: 4, h: 3, baseY: 6.5, facing: +1, wallMat: wood, roofMat: wood });
   }
 }
 

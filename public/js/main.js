@@ -1329,7 +1329,7 @@ class EventHorizonGame {
       this.camera.position.z = Math.sin(angle) * 22;
       this.camera.position.y = 8 + Math.sin(angle * 2) * 2;
       this.camera.lookAt(0, 0, 0);
-      this.maps.update(delta);
+      this.maps.update(delta, this.camera.position);
     }
 
     // 2. ACTIVE GAME STATES (STORY & MULTIPLAYER)
@@ -1366,7 +1366,7 @@ class EventHorizonGame {
         this.controls.update(delta);
       }
       this.weapons.update(delta, isMoving, this.controls.isSprinting);
-      this.maps.update(delta);
+      this.maps.update(delta, this.camera.position);
 
       // Radar rendering
       const radarTargets = [];

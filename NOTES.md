@@ -23,6 +23,10 @@ Read this first. Claude reads it at the start of each session, so keep it curren
 - Halo City has hollow buildings with doorways, a jump pad at each door, and stairs wrapping the back and right side of each building to the roof.
 - Stairs on every map are one colour (cyan). A step rises at most 0.65 units, which `STEP_UP_HEIGHT` in `controls.js` sets.
 
+- Endless landscape: every map has a ground plane and fog, plus props that repeat forever outside the hand-built core (trees on Halo City, boulders on Mars, rocks, crystals and rubble elsewhere). Props are made in 40 m chunks around the player (public/js/maps.js, LANDSCAPE table). Props with a box are solid.
+- Halo City has a treehouse at (140, 0), outside the city: stairs up to a hut on a platform.
+- The radar zooms out to fit every pilot on the map, and its canvas always matches its frame.
+
 ## Movement and combat
 - Right mouse aims down sights (zoom, slower mouse, scope overlay). R reloads with an animation.
 - F fires the grappling hook. C crouches while held, and tapping C dashes or slides.
