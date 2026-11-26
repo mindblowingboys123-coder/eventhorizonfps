@@ -360,6 +360,7 @@ class EventHorizonGame {
 
     // Pointer lock events
     window.addEventListener('pointer_lock_change', (e) => {
+      if (this.strike) return; // the overhead targeting view frees the mouse on purpose
       if (!e.detail.isLocked && this.gameState !== 'MENU') {
         this.ui.togglePauseMenu(true);
       } else {
@@ -377,6 +378,23 @@ class EventHorizonGame {
     });
     window.addEventListener('pointer_lock_change', (e) => {
       if (!e.detail.isLocked) this.weapons.aiming = false;
+    });
+
+    // Airstrike targeting: left click calls the strike, right click or Escape cancels
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (!this.strike) return;
+      if (e.button === 0) {
+        const pt = this.pickGround(e.clientX, e.clientY);
+        if (pt) this.endAirstrike(pt);
+      } else if (e.button === 2) {
+        this.endAirstrike(null);
+      }
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (this.strike) this.strike.mouse = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('keydown', (e) => {
+      if (this.strike && e.code === 'Escape') this.endAirstrike(null);
     });
 
     // Shooting with Left Click
@@ -729,11 +747,62 @@ class EventHorizonGame {
   }
 
   useAbility(slot) {
-    if (this.gameState === 'MENU' || this.isDead || this.gadgets.car) return;
+    if (this.gameState === 'MENU' || this.isDead || this.gadgets.car || this.strike) return;
     const res = this.abilities.use(slot, this.abilityContext());
     if (res.ok) {
       this.ui.addChatMessage('⚡ ABILITY', res.hits ? `${res.name} hit ${res.hits}` : res.name, true);
     }
+  }
+
+  // ---------- airstrike targeting ----------
+  beginAirstrike(onConfirm) {
+    if (this.strike || this.gameState === 'MENU' || this.isDead) return;
+    this.strike = {
+      onConfirm,
+      origin: this.camera.position.clone(),
+      mouse: null
+    };
+    this.gadgets.createReticle();
+    if (this.controls.isLocked) this.controls.unlock();
+  }
+
+  // point is the ground spot to strike, or null to cancel
+  endAirstrike(point) {
+    const s = this.strike;
+    if (!s) return;
+    this.strike = null;
+    this.gadgets.hideReticle();
+    this.controls.setPosition(s.origin.x, s.origin.y, s.origin.z);
+    if (point) {
+      this.gadgets.callStrike(point.x, point.z);
+      s.onConfirm();
+    }
+    this.controls.lock();
+  }
+
+  // Overhead view of the map, with the reticle under the mouse
+  updateStrikeView() {
+    const s = this.strike;
+    this.camera.position.set(s.origin.x, 90, s.origin.z);
+    this.camera.rotation.set(-Math.PI / 2, 0, 0, 'YXZ');
+    if (s.mouse) {
+      const pt = this.pickGround(s.mouse.x, s.mouse.y);
+      if (pt) this.gadgets.moveReticle(pt.x, pt.z);
+    }
+  }
+
+  // Where the mouse points on the ground (y = 0), or null
+  pickGround(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(ndc, this.camera);
+    const hit = new THREE.Vector3();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    return rc.ray.intersectPlane(plane, hit) ? hit : null;
   }
 
   // True if a body standing at feetY would overlap a wall or block at (x, z)
@@ -772,6 +841,7 @@ class EventHorizonGame {
         if (e.kind === 'enemy') { e.pos.x += (x - e.pos.x) * 0.5; e.pos.z += (z - e.pos.z) * 0.5; }
       },
       dash: (vx, vz) => { this.controls.velocity.x = vx; this.controls.velocity.z = vz; },
+      startAirstrike: (onConfirm) => this.beginAirstrike(onConfirm),
       deployCar: () => this.gadgets.deployCar(cam.x, cam.y - 1.6, cam.z, this.controls.yaw),
       deployTurret: () => this.gadgets.deployTurret(cam.x, cam.y - 1.6, cam.z),
       deployMine: () => this.gadgets.deployMine(cam.x, cam.y - 1.6, cam.z),
@@ -1109,6 +1179,7 @@ class EventHorizonGame {
   handlePlayerDeath(killer, killerId = null) {
     if (this.isDead) return;
     this.isDead = true;
+    if (this.strike) this.endAirstrike(null);
     this.gadgets.clearAll();
     this.auth.recordDeath();
     this.sound.playPlayerHurt();
@@ -1362,6 +1433,8 @@ class EventHorizonGame {
         this.updateDeathView(now);
       } else if (this.gadgets.car || this.gadgets.lastCar) {
         this.updateCarView(delta);
+      } else if (this.strike) {
+        this.updateStrikeView();
       } else {
         this.controls.update(delta);
       }

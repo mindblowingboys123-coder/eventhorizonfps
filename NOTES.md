@@ -32,6 +32,7 @@ Read this first. Claude reads it at the start of each session, so keep it curren
 - F fires the grappling hook. C crouches while held, and tapping C dashes or slides.
 - After dying you see your own body fall in third person for 2 seconds (only you can see it), then a RESPAWN button. Other pilots see you disappear and cannot shoot you while you are dead. It respawns you at a random spawn point with no living pilot within 15 metres. Shield lasts 2.5 seconds.
 - Abilities: E and Q slots, chosen in the Armory. Level abilities unlock with level; Remote Car, Blink, Turret, Proximity Mine and Decoy cost 20,000 CR each (public/js/abilities.js, public/js/gadgets.js).
+- Airstrike: overhead targeting view; left click calls a strike that lands after 3 seconds (150 damage within 12 m). Right click or Escape cancels. Cooldown starts only when a strike is called in.
 - Gadgets (car, turret, mine, decoy) are drawn for the player who placed them only. Their damage still reaches other pilots. Other players cannot see the models yet.
 
 ## Open items

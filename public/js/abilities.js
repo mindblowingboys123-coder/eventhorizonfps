@@ -15,6 +15,8 @@
 //   ctx.deployTurret()              place a turret at your feet
 //   ctx.deployMine()                drop a proximity mine at your feet
 //   ctx.deployDecoy()               leave a hologram of yourself behind
+//   ctx.startAirstrike(onConfirm)   open overhead targeting; onConfirm runs when the strike is called in.
+//                                   Returning null from apply means "not used yet", so no cooldown starts.
 // Abilities with purchaseOnly have no level; they are bought in the shop.
 
 export const ABILITIES = {
@@ -111,6 +113,15 @@ export const ABILITIES = {
       return 0;
     }
   },
+  airstrike: {
+    id: 'airstrike', name: 'Airstrike', purchaseOnly: true, cooldown: 60, color: '#ff4d4d',
+    description: 'Look down on the map, pick a spot, and call in a strike: 150 damage to pilots within 12 metres after 3 seconds.',
+    apply(mgr, ctx) {
+      // The cooldown starts only when the strike is called in
+      ctx.startAirstrike(() => { mgr.cooldowns.airstrike = 60; });
+      return null;
+    }
+  },
   decoy: {
     id: 'decoy', name: 'Decoy', purchaseOnly: true, cooldown: 30, color: '#4cc9f0',
     description: 'Leave a hologram of yourself behind and go cloaked for 8 seconds.',
@@ -173,6 +184,7 @@ export class AbilityManager {
     if (left > 0) return { ok: false, reason: 'cooldown', left };
     const def = ABILITIES[id];
     const hits = def.apply(this, ctx);
+    if (hits === null) return { ok: false, reason: 'targeting' };
     this.cooldowns[id] = def.cooldown;
     return { ok: true, name: def.name, hits };
   }

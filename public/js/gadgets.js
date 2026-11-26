@@ -18,6 +18,9 @@ const MINE_RADIUS = 5;
 const CAR_BLAST_DAMAGE = 100;
 const CAR_BLAST_RADIUS = 4;
 const DECOY_TIME = 8;
+const STRIKE_DELAY = 3;
+const STRIKE_RADIUS = 12;
+const STRIKE_DAMAGE = 150;
 
 export class GadgetManager {
   // deps: getPilots() -> [{ id, mesh }], sendHit(id, dmg, weapon), isBlocked(x, z, feetY) -> bool
@@ -27,6 +30,55 @@ export class GadgetManager {
     this.items = [];
     this.car = null;
     this.lastCar = null;
+    this.strikes = [];
+    this.reticle = null;
+  }
+
+  // Red ring on the ground that follows the aim while you choose a strike spot
+  createReticle() {
+    if (!this.reticle) {
+      this.reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.8, 1.1, 24),
+        new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      );
+      this.reticle.rotation.x = -Math.PI / 2;
+      this.scene.add(this.reticle);
+    }
+    this.reticle.visible = true;
+  }
+
+  moveReticle(x, z) {
+    if (this.reticle) this.reticle.position.set(x, 0.1, z);
+  }
+
+  hideReticle() {
+    if (this.reticle) this.reticle.visible = false;
+  }
+
+  // Calls in a strike: a warning ring, then the blast after STRIKE_DELAY seconds
+  callStrike(x, z) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(STRIKE_RADIUS - 0.4, STRIKE_RADIUS, 40),
+      new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.1, z);
+    this.scene.add(ring);
+    this.strikes.push({ x, z, life: STRIKE_DELAY, ring });
+  }
+
+  updateStrikes(dt) {
+    for (let i = this.strikes.length - 1; i >= 0; i--) {
+      const st = this.strikes[i];
+      st.life -= dt;
+      if (st.life <= 0) {
+        this.scene.remove(st.ring);
+        this.strikes.splice(i, 1);
+        this.blast(st.x, 0, st.z, STRIKE_RADIUS, STRIKE_DAMAGE, 'Airstrike');
+      } else {
+        st.ring.material.opacity = 0.3 + 0.4 * Math.abs(Math.sin(st.life * 6));
+      }
+    }
   }
 
   pilotsNear(x, z, radius) {
@@ -115,6 +167,7 @@ export class GadgetManager {
   }
 
   update(dt) {
+    this.updateStrikes(dt);
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
       it.life -= dt;
@@ -166,6 +219,8 @@ export class GadgetManager {
   clearAll() {
     for (const it of this.items) this.scene.remove(it.mesh);
     this.items = [];
+    for (const st of this.strikes) this.scene.remove(st.ring);
+    this.strikes = [];
     if (this.car) {
       this.scene.remove(this.car.mesh);
       this.car = null;
