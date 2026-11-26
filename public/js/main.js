@@ -1222,6 +1222,19 @@ class EventHorizonGame {
     this.camera.lookAt(center);
   }
 
+  // Distance to the nearest solid wall or building along a shot (Infinity if none)
+  wallDistance(origin, direction) {
+    const ray = new THREE.Ray(origin, direction);
+    const hit = new THREE.Vector3();
+    let best = Infinity;
+    for (const box of this.controls.colliders || []) {
+      if (!box || !box.min || !box.max) continue;
+      if (box.containsPoint(origin)) continue; // ignore boxes you are standing in
+      if (ray.intersectBox(box, hit)) best = Math.min(best, origin.distanceTo(hit));
+    }
+    return best;
+  }
+
   triggerPlayerShoot() {
     const origin = this.camera.position.clone();
     const dir = this.controls.getForwardDirection();
@@ -1249,7 +1262,8 @@ class EventHorizonGame {
         const enemyMeshes = this.enemies.getEnemyMeshes();
         const intersects = this.raycaster.intersectObjects(enemyMeshes, true);
 
-        if (intersects.length > 0) {
+        // A shot only hits if no wall stands in front of the target
+        if (intersects.length > 0 && intersects[0].distance < this.wallDistance(shot.origin, shot.direction)) {
           const hitMesh = intersects[0].object;
           // Find root enemy
           let root = hitMesh;
@@ -1277,7 +1291,8 @@ class EventHorizonGame {
         const targets = remotePlayers.map(p => p.mesh);
         const intersects = this.raycaster.intersectObjects(targets, true);
 
-        if (intersects.length > 0) {
+        // A shot only hits if no wall stands in front of the target
+        if (intersects.length > 0 && intersects[0].distance < this.wallDistance(shot.origin, shot.direction)) {
           let root = intersects[0].object;
           while (root.parent && root.parent !== this.scene) {
             root = root.parent;
