@@ -855,6 +855,12 @@ export class MapManager {
   // ---------- Endless landscape ----------
   startLandscape(mapGroup, mapId) {
     const cfg = LANDSCAPE[mapId] || LANDSCAPE.singularity;
+    // The first map (Singularity Core) gets no landscape floor, only its own platforms
+    if (mapId === 'singularity') {
+      this.endless = null;
+      this.scene.fog = null;
+      return;
+    }
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(8000, 8000),
       new THREE.MeshStandardMaterial({ color: cfg.ground, roughness: 0.95 })
