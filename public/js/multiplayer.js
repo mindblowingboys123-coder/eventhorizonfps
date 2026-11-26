@@ -570,6 +570,14 @@ export class MultiplayerClient {
     }
   }
 
+  // Deletes every pilot record in the room you are in (or last were in). Live players reappear on their next move.
+  async clearRoomPlayers() {
+    const room = this.currentRoom || this.lastRoom || 'world-hub';
+    await this.ready();
+    await this.db.ref(`rooms/${room}/players`).remove();
+    return room;
+  }
+
   async requestAdminPlayerList() {
     const room = this.currentRoom || this.lastRoom || 'world-hub';
     let list = [];

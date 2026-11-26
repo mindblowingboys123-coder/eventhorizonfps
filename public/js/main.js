@@ -541,6 +541,21 @@ class EventHorizonGame {
       });
     }
 
+    // Admin: delete every pilot record in the room, then reload the roster
+    const btnClearPlayers = document.getElementById('btn-admin-clear-players');
+    if (btnClearPlayers) {
+      btnClearPlayers.addEventListener('click', async () => {
+        if (!confirm('Delete ALL pilots in this room? Live players will reappear when they next move.')) return;
+        try {
+          await this.multiplayer.connectAdminOnly();
+          await this.multiplayer.clearRoomPlayers();
+          this.multiplayer.requestAdminPlayerList();
+        } catch (e) {
+          alert('Could not delete the pilots. The database rules may not allow it. ' + (e && e.message ? e.message : ''));
+        }
+      });
+    }
+
     // Admin Refresh Player Roster
     const btnRefPlayers = document.getElementById('btn-admin-refresh-players');
     if (btnRefPlayers) {
