@@ -21,7 +21,7 @@ const LANDSCAPE = {
   station:     { ground: 0x3b4558, fog: 0x0a0d18, core: 90,  prop: 'crate' },
   cyber:       { ground: 0x1f1b38, fog: 0x0a0912, core: 70,  prop: 'crystal' },
   shattered:   { ground: 0x2b3347, fog: 0x0a0d18, core: 90,  prop: 'rubble' },
-  singularity: { ground: 0x2a3046, fog: 0x0a0d18, core: 80,  prop: 'pillar' }
+  singularity: { ground: 0x2a3046, fog: 0x0a0d18, core: 80,  prop: null }
 };
 const LANDSCAPE_Y = -0.2;   // just under every map floor
 const CELL = 40;            // metres per chunk of props
@@ -862,6 +862,8 @@ export class MapManager {
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = LANDSCAPE_Y;
     mapGroup.add(ground);
+    // Solid floor under the whole landscape, so players land on it instead of falling through
+    this.addBoxCollider(0, LANDSCAPE_Y - 0.5, 0, 8000, 1, 8000);
     this.scene.fog = new THREE.Fog(cfg.fog, 110, 320);
 
     // Shared geometry and materials for every prop of this map
@@ -947,6 +949,11 @@ export class MapManager {
     const rng = mulberry32((Math.imul(cx, 73856093) ^ Math.imul(cz, 19349663)) >>> 0);
     const group = new THREE.Group();
     const boxes = [];
+    if (!e.cfg.prop) { // this map has only its floor
+      e.mapGroup.add(group);
+      e.cells.set(cx + ',' + cz, { group, boxes });
+      return;
+    }
     for (let i = 0; i < PROPS_PER_CELL; i++) {
       const x = (cx + rng()) * CELL;
       const z = (cz + rng()) * CELL;
