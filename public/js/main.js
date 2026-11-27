@@ -1285,6 +1285,7 @@ class EventHorizonGame {
       this.multiplayer.vehicleVeh = null;
     }
     if (!inDog) return;
+    if (this.maps.skyDome) this.maps.skyDome.position.copy(this.camera.position);
     this.dogfight.updateVisuals();
     const t = performance.now();
     if (t - (this.dogTickAt || 0) > 1000) {

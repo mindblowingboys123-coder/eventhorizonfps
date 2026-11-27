@@ -887,9 +887,29 @@ export class MapManager {
     this.addBoxCollider(0, -0.5, 0, 4000, 1, 4000);
 
     // Team garages (the car inside belongs to its team) and the jet hangar
-    this.buildHollowRoom(group, { x: -150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: +1, wallMat, roofMat });
-    this.buildHollowRoom(group, { x: 150, z: 0, w: 18, d: 14, h: 6, baseY: 0, facing: -1, wallMat, roofMat });
-    this.buildHollowRoom(group, { x: 0, z: -200, w: 24, d: 24, h: 8, baseY: 0, facing: +1, wallMat, roofMat });
+    this.buildHollowRoom(group, { x: -150, z: 0, w: 30, d: 26, h: 10, baseY: 0, facing: +1, wallMat, roofMat, doorW: 8 });
+    this.buildHollowRoom(group, { x: 150, z: 0, w: 30, d: 26, h: 10, baseY: 0, facing: -1, wallMat, roofMat, doorW: 8 });
+    this.buildHollowRoom(group, { x: 0, z: -200, w: 60, d: 60, h: 22, baseY: 0, facing: +1, wallMat, roofMat, doorW: 14 });
+
+    // Sky: a dome from deep blue overhead to pale haze at the horizon, with a sun.
+    // It is kept around the camera (see main.js), so it stays inside the far plane.
+    const skyGeo = new THREE.SphereGeometry(900, 32, 16);
+    const top = new THREE.Color(0x1a56b8);
+    const horizon = new THREE.Color(0xc4e4ff);
+    const c = new THREE.Color();
+    const colors = [];
+    const pos = skyGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.pow(Math.max(0, pos.getY(i) / 900), 0.6);
+      c.copy(horizon).lerp(top, t);
+      colors.push(c.r, c.g, c.b);
+    }
+    skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const sky = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+    const skySun = new THREE.Mesh(new THREE.SphereGeometry(40, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff1c1, fog: false }));
+    skySun.position.set(400, 600, -500);
+    group.add(sky, skySun);
+    this.skyDome = sky;
 
     // Spawns are filtered by team in main.js (red on the west, blue on the east)
     const spawns = [];
