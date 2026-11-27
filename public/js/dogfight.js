@@ -22,7 +22,7 @@ const MISSILE_COUNT = 4;
 const MISSILE_SPEED = 90;        // metres per second
 const MISSILE_LIFE = 5;          // seconds before it burns out
 const MISSILE_RELOAD = 800;      // ms between shots
-const MISSILE_DAMAGE = 120;
+const MISSILE_DAMAGE = 200;      // more than a pilot's 100 health + 50 shield, so one hit kills
 const MISSILE_RADIUS = 8;        // blast radius, metres
 const EXPLOSION_TIME = 1.2;      // seconds the fireball lasts
 // Passenger seat offsets inside the car (x to the right, z to the back)
@@ -774,6 +774,17 @@ export class DogfightManager {
     return pts.some(([px, pz]) => this.deps.isBlocked(px, pz, feet));
   }
 
+  // True when another jet's body would overlap this jet at (x, y, z). Uses the other pilots' shared positions.
+  hitsJet(x, y, z) {
+    return this.deps.getPilots().some((p) => {
+      if (!p.vehicle || !p.veh || this.kindOf(p.vehicle.id) !== 'jet') return false;
+      const dx = p.veh.x - x;
+      const dz = p.veh.z - z;
+      const dy = p.veh.y - y;
+      return Math.hypot(dx, dz) < 6 && Math.abs(dy) < 3;
+    });
+  }
+
   // The jet stops dead and the pilot takes a crash hit (at most one a second)
   crash() {
     this.speed = 0;
@@ -801,7 +812,7 @@ export class DogfightManager {
     const nx = this.x - Math.sin(this.hYaw) * cp * this.speed * dt;
     const ny = this.y + Math.sin(this.hPitch) * this.speed * dt;
     const nz = this.z - Math.cos(this.hYaw) * cp * this.speed * dt;
-    if (this.hitsStructure(nx, ny, nz)) {
+    if (this.hitsStructure(nx, ny, nz) || this.hitsJet(nx, ny, nz)) {
       this.crash();
     } else {
       this.x = nx; this.y = ny; this.z = nz;

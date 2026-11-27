@@ -393,7 +393,8 @@ export class MultiplayerClient {
     if (this.isInvincible()) return;
 
     // Armoured jet and garage car: the damage is scaled down while you are in one
-    const scale = this.vehicleInfo ? VEHICLE_DAMAGE_SCALE : 1;
+    // Missiles ignore the halving, so they still kill in one hit from inside a jet or car
+    const scale = this.vehicleInfo && h.w !== 'Missile' ? VEHICLE_DAMAGE_SCALE : 1;
     const dmg = Math.min(MAX_DAMAGE, Math.max(0, num(h.dmg, 0))) * scale;
     let shield = this.vitals.shield;
     let health = this.vitals.health;
