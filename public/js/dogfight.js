@@ -17,6 +17,13 @@ const CAR_MAX = 16;
 const CAR_REVERSE = 6;
 const TERMINAL_COOLDOWN = 15000; // ms between spawns from one terminal
 const TERMINAL_REACH = 4;        // metres
+// Jet missiles (G, pilot only): four per jet, rearmed when you land
+const MISSILE_COUNT = 4;
+const MISSILE_SPEED = 90;        // metres per second
+const MISSILE_LIFE = 5;          // seconds before it burns out
+const MISSILE_RELOAD = 800;      // ms between shots
+const MISSILE_DAMAGE = 120;
+const MISSILE_RADIUS = 6;        // blast radius, metres
 // Passenger seat offsets inside the car (x to the right, z to the back)
 const SEAT_OFFSETS = [[0, 0], [0.7, 0.5], [-0.7, -0.6], [0.7, -0.9]];
 
@@ -63,6 +70,10 @@ export class DogfightManager {
     this.scoreHud = null;
     this.cockpits = null;
     this.trim = null;
+    this.missileLightMats = [];
+    this.missileShots = [];
+    this.fx = [];
+    this.parkedLocal = {};   // where a vehicle was left, until the shared record arrives
     this.reset();
   }
 
@@ -106,7 +117,6 @@ export class DogfightManager {
     const frame = new THREE.MeshStandardMaterial({ color: 0x151a24, roughness: 0.6, metalness: 0.4 });
     const seat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.9 });
     const trim = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
-    const missileLight = new THREE.MeshBasicMaterial({ color: 0x7fffd4 });
     this.trim = trim;
     const add = (g, geo, mat, x, y, z, rx = 0) => {
       const m = new THREE.Mesh(geo, mat);
@@ -128,7 +138,9 @@ export class DogfightManager {
     add(jet, new THREE.BoxGeometry(0.25, 0.15, 0.4), frame, 0.9, -0.7, -0.8);       // throttle
     // Four missile lights, one per missile on the wings
     for (const x of [-0.95, -0.7, 0.7, 0.95]) {
-      add(jet, new THREE.BoxGeometry(0.12, 0.08, 0.02), missileLight, x, -0.5, -1.02);
+      const mat = new THREE.MeshBasicMaterial({ color: 0x7fffd4 });
+      this.missileLightMats.push(mat);
+      add(jet, new THREE.BoxGeometry(0.12, 0.08, 0.02), mat, x, -0.5, -1.02);
     }
 
     // The car has no roof, so the cabin walls are drawn from inside around you. Without them
@@ -188,6 +200,8 @@ export class DogfightManager {
     this.tYaw = 0;
     this.speed = 0;
     this.fuel = JET_FUEL_MAX;
+    this.missiles = MISSILE_COUNT;
+    this.missileReady = 0;
     this.info = null;   // shared with other pilots: { id, seat }
     this.veh = null;    // shared with other pilots: vehicle position and aim
   }
@@ -202,6 +216,7 @@ export class DogfightManager {
     } else {
       this.destroyVisuals();
       this.destroyTerminals();
+      this.clearMissiles();
       this.reset();
       this.setHud(false);
       this.setScoreHud(false);
@@ -243,7 +258,8 @@ export class DogfightManager {
     tail.position.set(0, 1.2, 2.8);
     g.add(body, nose, engine, canopy, wings, fin, tail);
 
-    // Missiles: two under each wing on a pylon
+    // Missiles: two under each wing on a pylon. Each pod keeps its parts so they can be hidden when fired.
+    const pods = [];
     for (const side of [-1, 1]) {
       const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.4), dark);
       pylon.position.set(side * 2.8, 0.85, -0.2);
@@ -256,8 +272,10 @@ export class DogfightManager {
         tip.rotation.x = -Math.PI / 2;
         tip.position.set(side * x, 0.76, -1.05);
         g.add(m, tip);
+        pods.push({ x: side * x, y: 0.76, z: -0.2, parts: [m, tip] });
       }
     }
+    g.userData.pods = pods;
     return g;
   }
 
@@ -375,7 +393,7 @@ export class DogfightManager {
       const mine = this.active && this.vehicleId === id;
       const st = mine
         ? { x: this.x, y: this.y, z: this.z, hYaw: this.hYaw, hPitch: this.hPitch, tYaw: this.tYaw }
-        : (occ[id] && occ[id].state) || { x: dock.x, y: dock.y, z: dock.z, hYaw: dock.hYaw, hPitch: 0, tYaw: 0 };
+        : (occ[id] && occ[id].state) || this.parkedFor(id) || { x: dock.x, y: dock.y, z: dock.z, hYaw: dock.hYaw, hPitch: 0, tYaw: 0 };
       v.position.set(st.x, st.y, st.z);
       v.rotation.set(def.kind === 'jet' ? (st.hPitch || 0) : 0, st.hYaw || 0, 0, 'YXZ');
       v.visible = !mine;
@@ -393,6 +411,8 @@ export class DogfightManager {
     for (const id of Object.keys(defs)) {
       spots.push(defs[id].dock);
       if (occ[id] && occ[id].state) spots.push(occ[id].state);
+      const parked = this.parkedFor(id);
+      if (parked) spots.push(parked);
     }
     if (this.active) spots.push({ x: this.x, z: this.z });
     for (const s of slots) {
@@ -442,6 +462,114 @@ export class DogfightManager {
         this.terminalReady[term.id] = 0;
         this.deps.notify('Could not spawn a vehicle.');
       });
+  }
+
+  // ---------- missiles (G, jet pilot only) ----------
+  makeMissile() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.5, 8),
+      new THREE.MeshStandardMaterial({ color: 0xdfe6ef, roughness: 0.4 }));
+    body.rotation.x = Math.PI / 2;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.3, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff4d4d, emissive: 0x551010 }));
+    tip.rotation.x = -Math.PI / 2;
+    tip.position.z = -0.9;
+    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.4, 8), new THREE.MeshBasicMaterial({ color: 0xffaa33 }));
+    flame.rotation.x = Math.PI / 2;
+    flame.position.z = 1.0;
+    g.add(body, tip, flame);
+    return g;
+  }
+
+  // Shows the missiles still on the wings and the dashboard lights for them
+  syncMissiles() {
+    this.missileLightMats.forEach((m, i) => m.color.set(i < this.missiles ? 0x7fffd4 : 0x1a2a2a));
+    const visual = this.vehicleId && this.visuals[this.vehicleId];
+    if (visual && visual.userData.pods) {
+      visual.userData.pods.forEach((pod, i) => pod.parts.forEach((p) => { p.visible = i < this.missiles; }));
+    }
+  }
+
+  fireMissile() {
+    if (!this.active || this.seat !== 0 || this.kindOf(this.vehicleId) !== 'jet') return;
+    const visual = this.visuals[this.vehicleId];
+    if (!visual || !visual.userData.pods) return;
+    if (this.missiles <= 0) {
+      this.deps.notify('Out of missiles. Land to rearm.');
+      return;
+    }
+    const now = performance.now();
+    if (now < this.missileReady) return;
+    this.missileReady = now + MISSILE_RELOAD;
+    this.missiles -= 1;
+    const pod = visual.userData.pods[this.missiles];
+    this.syncMissiles();
+
+    // Launch from the pod, straight along the nose
+    visual.updateMatrixWorld(true);
+    const start = visual.localToWorld(new THREE.Vector3(pod.x, pod.y, pod.z));
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(visual.quaternion);
+    const group = this.makeMissile();
+    group.quaternion.copy(visual.quaternion);
+    group.position.copy(start);
+    this.scene.add(group);
+    this.missileShots.push({ group, pos: start.clone(), dir, life: MISSILE_LIFE });
+  }
+
+  // Blast: damages every pilot near the point through the normal hit system
+  explode(at) {
+    for (const t of this.deps.getTargets()) {
+      const c = new THREE.Vector3(t.pos.x, t.pos.y + 1, t.pos.z);
+      if (c.distanceTo(at) <= MISSILE_RADIUS) this.deps.sendHit(t.id, MISSILE_DAMAGE, 'Missile');
+    }
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff8a3a, transparent: true, opacity: 0.85 }));
+    mesh.position.copy(at);
+    this.scene.add(mesh);
+    this.fx.push({ mesh, life: 0.45, max: 0.45 });
+  }
+
+  // Moves the missiles in flight and the blasts; runs every frame in the dogfight server
+  updateMissiles(delta) {
+    const dt = Math.min(delta, 0.05);
+    if (this.enabled) {
+      const targets = this.deps.getTargets();
+      for (let i = this.missileShots.length - 1; i >= 0; i--) {
+        const m = this.missileShots[i];
+        m.life -= dt;
+        m.pos.addScaledVector(m.dir, MISSILE_SPEED * dt);
+        m.group.position.copy(m.pos);
+        let boom = m.life <= 0 || m.pos.y <= 0.2 || this.deps.isBlocked(m.pos.x, m.pos.z, m.pos.y);
+        if (!boom) {
+          for (const t of targets) {
+            if (new THREE.Vector3(t.pos.x, t.pos.y + 1, t.pos.z).distanceTo(m.pos) < 2) { boom = true; break; }
+          }
+        }
+        if (boom) {
+          this.explode(m.pos.clone());
+          this.scene.remove(m.group);
+          this.missileShots.splice(i, 1);
+        }
+      }
+    }
+    for (let i = this.fx.length - 1; i >= 0; i--) {
+      const f = this.fx[i];
+      f.life -= dt;
+      if (f.life <= 0) {
+        this.scene.remove(f.mesh);
+        this.fx.splice(i, 1);
+      } else {
+        f.mesh.scale.setScalar(1 + (f.max - f.life) * 12);
+        f.mesh.material.opacity = 0.85 * (f.life / f.max);
+      }
+    }
+  }
+
+  clearMissiles() {
+    for (const m of this.missileShots) this.scene.remove(m.group);
+    for (const f of this.fx) this.scene.remove(f.mesh);
+    this.missileShots = [];
+    this.fx = [];
   }
 
   // ---------- boarding ----------
@@ -495,6 +623,11 @@ export class DogfightManager {
     this.tYaw = 0;
     this.speed = 0;
     if (kind === 'jet' && seat === 0) this.fuel = JET_FUEL_MAX;
+    if (kind === 'jet') {
+      this.missiles = MISSILE_COUNT;
+      this.missileReady = 0;
+      this.syncMissiles();
+    }
     this.setHud(true);
   }
 
@@ -512,8 +645,23 @@ export class DogfightManager {
     this.forceExit();
   }
 
+  // Leaves the vehicle where it stands, so it stays there for everyone (not back at its dock)
+  parkHere() {
+    if (!this.active || this.seat !== 0 || !this.defOf(this.vehicleId)) return;
+    const st = { x: this.x, y: this.y, z: this.z, hYaw: this.hYaw, hPitch: this.hPitch, tYaw: this.tYaw };
+    this.parkedLocal[this.vehicleId] = st;
+    if (this.deps.park) this.deps.park(this.vehicleId, st);
+  }
+
+  // Where an empty vehicle was left: the shared record first, then this client's copy
+  parkedFor(id) {
+    const shared = this.deps.getParked ? this.deps.getParked() : {};
+    return shared[id] || this.parkedLocal[id] || null;
+  }
+
   forceExit() {
     if (!this.active) return;
+    this.parkHere();
     this.active = false;
     this.vehicleId = null;
     this.info = null;
@@ -547,6 +695,11 @@ export class DogfightManager {
         this.hYaw = aim.yaw;
         this.hPitch = Math.max(-1.3, Math.min(1.3, aim.pitch));
         this.flyJet(dt, input);
+        if (this.y <= 0.5 && this.missiles < MISSILE_COUNT) {
+          this.missiles = MISSILE_COUNT;
+          this.syncMissiles();
+          this.deps.notify('Missiles rearmed.');
+        }
       }
     } else if (pilot) {
       this.driveCar(dt, input);
@@ -647,6 +800,7 @@ export class DogfightManager {
         <div style="height:6px; background:#1b2433; border-radius:3px; margin:4px 0 8px;"><div style="height:100%; width:${altPct}%; background:#7fffd4; border-radius:3px;"></div></div>
         <div style="font-size:0.8rem; letter-spacing:1px;">FUEL <b>${fuel}%</b>${fuel <= 0 ? ' <span style="color:#ff4d6d;">OUT OF FUEL</span>' : ''}</div>
         <div style="height:6px; background:#1b2433; border-radius:3px; margin:4px 0 8px;"><div style="height:100%; width:${fuel}%; background:${fuel < 20 ? '#ff4d6d' : '#00f0ff'}; border-radius:3px;"></div></div>
+        <div style="font-size:0.8rem; letter-spacing:1px;">MISSILES <b>${this.missiles}/${MISSILE_COUNT}</b> <span style="color:#8aa;">· G to fire</span></div>
         <div style="font-size:0.7rem; color:#8aa;">SPEED ${Math.round(this.speed)} · V to land and get out</div>`;
     } else {
       const label = kind === 'jet' ? 'JET PASSENGER'

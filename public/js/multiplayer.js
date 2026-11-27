@@ -141,6 +141,7 @@ export class MultiplayerClient {
     this.stats = { kills: 0, deaths: 0 };
     this.lastMap = null;
     this.spawnedVehicles = {}; // dogfight: extra jets and cars from the terminals, shared by all
+    this.parked = {};          // dogfight: where each vehicle was last left, shared by all
     this.serverOffset = 0;
     this.clockStarted = false;
     this.listenerCleanups = [];
@@ -359,6 +360,7 @@ export class MultiplayerClient {
       this.listen(R('score'), 'value', (snap) => { this.score = snap.val() || { red: 0, blue: 0 }; });
       this.listen(R('round'), 'value', (snap) => { this.round = snap.val() || null; });
       this.listen(R('vehicles'), 'value', (snap) => { this.spawnedVehicles = snap.val() || {}; });
+      this.listen(R('parked'), 'value', (snap) => { this.parked = snap.val() || {}; });
     }
     this.listen(R('meta/map'), 'value', (snap) => {
       const raw = snap.val() ? String(snap.val()) : null;
@@ -516,6 +518,7 @@ export class MultiplayerClient {
           this.db.ref('rooms/dogfight/score').set({ red: 0, blue: 0 });
           // Spawned vehicles last one round; the terminals can make new ones
           this.db.ref('rooms/dogfight/vehicles').remove().catch(() => {});
+          this.db.ref('rooms/dogfight/parked').remove().catch(() => {});
         }
       }).catch(() => {});
     }
@@ -531,6 +534,18 @@ export class MultiplayerClient {
   // Extra vehicles spawned from the terminals (shared record, see dogfight.js)
   getSpawnedVehicles() {
     return this.spawnedVehicles || {};
+  }
+
+  // Where each vehicle was last left (shared record, see dogfight.js)
+  getParked() {
+    return this.parked || {};
+  }
+
+  parkVehicle(id, st) {
+    if (this.currentRoom !== 'dogfight' || !this.db) return;
+    this.db.ref(`rooms/dogfight/parked/${id}`)
+      .set({ x: st.x, y: st.y, z: st.z, hYaw: st.hYaw, hPitch: st.hPitch, tYaw: st.tYaw, t: this.now() })
+      .catch((e) => console.warn('Vehicle not parked', e));
   }
 
   // Adds one jet or garage car at a spawn slot, if the round's limit allows it
