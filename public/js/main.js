@@ -13,7 +13,7 @@ import { ShopManager, TRACER_OPTIONS } from './shop.js';
 import { UIManager } from './ui.js';
 import { AbilityManager, ABILITIES, ABILITY_LIST } from './abilities.js';
 import { GadgetManager } from './gadgets.js';
-import { DogfightManager } from './dogfight.js';
+import { DogfightManager, VEHICLE_DAMAGE_SCALE } from './dogfight.js';
 const CATACLYSM_MS = 10 * 60 * 1000; // how long the centre floor stays broken
 const SHATTERED_SPAWN = { x: 0, y: 3, z: 0 }; // core island on the shattered floor map
 
@@ -405,6 +405,14 @@ class EventHorizonGame {
     });
     window.addEventListener('keydown', (e) => {
       if (this.strike && e.code === 'Escape') this.endAirstrike(null);
+    });
+
+    // Hold Z to scope in (the same zoom as right-click aim, also works in a jet or car)
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyZ' && !e.repeat && this.controls.isLocked && !this.isDead) this.weapons.aiming = true;
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyZ') this.weapons.aiming = false;
     });
 
     // Shooting with Left Click
@@ -1171,6 +1179,7 @@ class EventHorizonGame {
   takeDamage(amount) {
     if (this.isDead) return;
     if (this.auth && this.auth.profile && this.auth.profile.godMode) return; // God Mode invincible
+    if (this.dogfight.active) amount *= VEHICLE_DAMAGE_SCALE; // armoured jet and car
     this.lastDamageTime = performance.now();
 
     if (this.shield > 0) {
@@ -1459,6 +1468,7 @@ class EventHorizonGame {
 
     // 1. MENU STATE: Cinematic orbiting camera
     if (this.gameState === 'MENU') {
+      this.dogfightFrame(delta); // hides the dogfight score and team bar once you leave
       const angle = now * 0.00015;
       this.camera.position.x = Math.cos(angle) * 22;
       this.camera.position.z = Math.sin(angle) * 22;

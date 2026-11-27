@@ -22,6 +22,8 @@ const SEAT_OFFSETS = [[0, 0], [0.7, 0.5], [-0.7, -0.6], [0.7, -0.9]];
 
 // Extra vehicles a round can have out: jets in total, garage cars per team
 export const SPAWN_LIMIT = { jet: 3, car: 2 };
+// Damage taken while in a jet or garage car is multiplied by this (0.5 = twice the health)
+export const VEHICLE_DAMAGE_SCALE = 0.5;
 
 // Where spawned vehicles appear, and the terminals that spawn them
 export const SPAWN_SLOTS = {
@@ -129,16 +131,36 @@ export class DogfightManager {
       add(jet, new THREE.BoxGeometry(0.12, 0.08, 0.02), missileLight, x, -0.5, -1.02);
     }
 
+    // The car has no roof, so the cabin walls are drawn from inside around you. Without them
+    // the view over the rim shows only the ground and sky.
     const car = new THREE.Group();
+    const cabin = new THREE.MeshStandardMaterial({ color: 0x2f3746, roughness: 0.8, metalness: 0.2 });
+    const glass = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+    const floorY = -1.075;   // the car floor, relative to your eyes
+    const topY = 0.35;       // the top of the cabin walls
+    const wallH = topY - floorY;
+    const midY = (floorY + topY) / 2;
+    const panel = (w, h, x, y, z, rx, ry, mat) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+      m.position.set(x, y, z);
+      m.rotation.set(rx, ry, 0);
+      car.add(m);
+    };
+    panel(2.2, 4.4, 0, floorY, 0, -Math.PI / 2, 0, cabin);      // floor
+    panel(4.4, wallH, -1.1, midY, 0, 0, Math.PI / 2, cabin);    // left wall
+    panel(4.4, wallH, 1.1, midY, 0, 0, -Math.PI / 2, cabin);    // right wall
+    panel(2.2, wallH, 0, midY, 2.2, 0, Math.PI, cabin);         // back wall (behind the driver)
+    panel(2.2, wallH, 0, midY, -2.2, 0, 0, glass);              // windscreen, see-through
+
     add(car, new THREE.BoxGeometry(2.6, 0.6, 1.0), dark, 0, -0.55, -1.1, -0.3);    // dashboard
     add(car, new THREE.BoxGeometry(0.4, 0.12, 0.02), trim, 0, -0.42, -1.07);        // team trim gauge
     add(car, new THREE.TorusGeometry(0.22, 0.03, 8, 20), frame, 0, -0.3, -0.75, 0.9); // steering wheel
     add(car, new THREE.CylinderGeometry(0.03, 0.03, 0.5, 6), frame, 0, -0.5, -0.9, 0.9); // column
-    add(car, new THREE.BoxGeometry(0.16, 1.3, 0.16), frame, -1.1, 0.3, -1.0);       // left pillar
-    add(car, new THREE.BoxGeometry(0.16, 1.3, 0.16), frame, 1.1, 0.3, -1.0);        // right pillar
-    add(car, new THREE.BoxGeometry(2.4, 0.16, 0.16), frame, 0, 0.95, -1.0);         // roof frame
-    add(car, new THREE.BoxGeometry(2.3, 0.05, 0.05), trim, 0, 0.85, -1.06);         // team trim on the frame
-    add(car, new THREE.BoxGeometry(0.1, 0.8, 0.1), frame, 0, 0.5, -1.0);            // centre post
+    add(car, new THREE.BoxGeometry(0.16, wallH, 0.16), frame, -1.1, midY, -1.0);    // left pillar
+    add(car, new THREE.BoxGeometry(0.16, wallH, 0.16), frame, 1.1, midY, -1.0);     // right pillar
+    add(car, new THREE.BoxGeometry(2.4, 0.16, 0.16), frame, 0, topY, -1.0);         // roof frame
+    add(car, new THREE.BoxGeometry(2.3, 0.05, 0.05), trim, 0, topY - 0.1, -1.06);   // team trim on the frame
+    add(car, new THREE.BoxGeometry(0.1, 0.9, 0.1), frame, 0, -0.1, -1.0);           // centre post
     add(car, new THREE.BoxGeometry(0.6, 0.3, 0.6), seat, -0.45, -0.5, -0.4);        // driver seat back
 
     for (const g of [jet, car]) {
@@ -256,12 +278,13 @@ export class DogfightManager {
       return m;
     };
     add(new THREE.BoxGeometry(2.2, 0.15, 4.4), paint, 0, 0.45, 0);          // floor
-    add(new THREE.BoxGeometry(0.12, 0.6, 4.4), paint, -1.04, 0.85, 0);      // left side
-    add(new THREE.BoxGeometry(0.12, 0.6, 4.4), paint, 1.04, 0.85, 0);       // right side
-    add(new THREE.BoxGeometry(2.2, 0.6, 0.12), paint, 0, 0.85, -2.14);      // front
-    add(new THREE.BoxGeometry(2.2, 0.6, 0.12), paint, 0, 0.85, 2.14);       // back
-    add(new THREE.BoxGeometry(0.02, 0.1, 4.2), accent, -1.1, 1.05, 0);      // team stripe left
-    add(new THREE.BoxGeometry(0.02, 0.1, 4.2), accent, 1.1, 1.05, 0);       // team stripe right
+    // Walls from the floor up to 1.5 m above it, so the driver's eyes sit inside the cabin
+    add(new THREE.BoxGeometry(0.12, 1.5, 4.4), paint, -1.04, 1.2, 0);       // left side
+    add(new THREE.BoxGeometry(0.12, 1.5, 4.4), paint, 1.04, 1.2, 0);        // right side
+    add(new THREE.BoxGeometry(2.2, 1.5, 0.12), paint, 0, 1.2, -2.14);       // front
+    add(new THREE.BoxGeometry(2.2, 1.5, 0.12), paint, 0, 1.2, 2.14);        // back
+    add(new THREE.BoxGeometry(0.02, 0.1, 4.2), accent, -1.1, 1.5, 0);       // team stripe left
+    add(new THREE.BoxGeometry(0.02, 0.1, 4.2), accent, 1.1, 1.5, 0);        // team stripe right
     for (const [x, z] of [[-1.15, -1.4], [1.15, -1.4], [-1.15, 1.4], [1.15, 1.4]]) {
       const w = add(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 10), dark, x, 0.35, z);
       w.rotation.z = Math.PI / 2;
@@ -278,7 +301,7 @@ export class DogfightManager {
 
     // Turret at the back of the open bed: a group that turns with the driver's mouse
     const turret = new THREE.Group();
-    turret.position.set(0, 1.0, 0.7);
+    turret.position.set(0, 0.45, 0.7);
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.45, 0.3, 10), dark);
     base.position.y = 0.15;
     const gun = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 1.5), dark);

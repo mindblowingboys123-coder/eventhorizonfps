@@ -3,7 +3,7 @@
 // Uses the same Firebase connection as auth.js (window.firebase), so no extra setup
 // besides databaseURL in firebase-config.js. Same public API and event names as before.
 import * as THREE from 'three';
-import { SPAWN_LIMIT } from './dogfight.js';
+import { SPAWN_LIMIT, VEHICLE_DAMAGE_SCALE } from './dogfight.js';
 
 const ROOMS = {
   'world-hub':     { name: 'Event Horizon - World Server (Global)', map: 'singularity' },
@@ -390,7 +390,9 @@ export class MultiplayerClient {
   applyHit(h) {
     if (this.isInvincible()) return;
 
-    const dmg = Math.min(MAX_DAMAGE, Math.max(0, num(h.dmg, 0)));
+    // Armoured jet and garage car: the damage is scaled down while you are in one
+    const scale = this.vehicleInfo ? VEHICLE_DAMAGE_SCALE : 1;
+    const dmg = Math.min(MAX_DAMAGE, Math.max(0, num(h.dmg, 0))) * scale;
     let shield = this.vitals.shield;
     let health = this.vitals.health;
 
