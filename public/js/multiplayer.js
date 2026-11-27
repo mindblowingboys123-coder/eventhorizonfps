@@ -3,6 +3,7 @@
 // Uses the same Firebase connection as auth.js (window.firebase), so no extra setup
 // besides databaseURL in firebase-config.js. Same public API and event names as before.
 import * as THREE from 'three';
+import { SPAWN_LIMIT } from './dogfight.js';
 
 const ROOMS = {
   'world-hub':     { name: 'Event Horizon - World Server (Global)', map: 'singularity' },
@@ -139,6 +140,7 @@ export class MultiplayerClient {
     this.dead = false;
     this.stats = { kills: 0, deaths: 0 };
     this.lastMap = null;
+    this.spawnedVehicles = {}; // dogfight: extra jets and cars from the terminals, shared by all
     this.serverOffset = 0;
     this.clockStarted = false;
     this.listenerCleanups = [];
@@ -356,6 +358,7 @@ export class MultiplayerClient {
     if (room === 'dogfight') {
       this.listen(R('score'), 'value', (snap) => { this.score = snap.val() || { red: 0, blue: 0 }; });
       this.listen(R('round'), 'value', (snap) => { this.round = snap.val() || null; });
+      this.listen(R('vehicles'), 'value', (snap) => { this.spawnedVehicles = snap.val() || {}; });
     }
     this.listen(R('meta/map'), 'value', (snap) => {
       const raw = snap.val() ? String(snap.val()) : null;
@@ -507,7 +510,11 @@ export class MultiplayerClient {
         if (!cur || !cur.winner || now < (cur.won || 0) + WIN_PAUSE_MS) return cur;
         return { n: (cur.n || 1) + 1, end: now + ROUND_MS, winner: null, won: null };
       }).then((res) => {
-        if (res.committed) this.db.ref('rooms/dogfight/score').set({ red: 0, blue: 0 });
+        if (res.committed) {
+          this.db.ref('rooms/dogfight/score').set({ red: 0, blue: 0 });
+          // Spawned vehicles last one round; the terminals can make new ones
+          this.db.ref('rooms/dogfight/vehicles').remove().catch(() => {});
+        }
       }).catch(() => {});
     }
   }
@@ -517,6 +524,39 @@ export class MultiplayerClient {
     return Object.values(this.otherPlayers)
       .filter((p) => p.vehicle && p.veh)
       .map((p) => ({ id: p.id, vehicle: p.vehicle, veh: p.veh, team: p.team }));
+  }
+
+  // Extra vehicles spawned from the terminals (shared record, see dogfight.js)
+  getSpawnedVehicles() {
+    return this.spawnedVehicles || {};
+  }
+
+  // Adds one jet or garage car at a spawn slot, if the round's limit allows it
+  async spawnDogfightVehicle(kind, team, slot) {
+    if (this.currentRoom !== 'dogfight' || !this.db) return { ok: false, reason: 'Terminals only work on the dogfight server.' };
+    const all = Object.values(this.spawnedVehicles || {}).filter(Boolean);
+    if (kind === 'jet') {
+      if (all.filter((v) => v.kind === 'jet').length >= SPAWN_LIMIT.jet) {
+        return { ok: false, reason: `The hangar already has ${SPAWN_LIMIT.jet} extra jets out.` };
+      }
+    } else if (all.filter((v) => v.kind === 'car' && v.team === team).length >= SPAWN_LIMIT.car) {
+      return { ok: false, reason: `Your team already has ${SPAWN_LIMIT.car} extra garage cars out.` };
+    }
+    try {
+      await this.db.ref('rooms/dogfight/vehicles').push({
+        kind,
+        team: kind === 'car' ? team : null,
+        x: slot.x,
+        z: slot.z,
+        hYaw: slot.hYaw,
+        by: this.myUid || '',
+        t: this.now()
+      });
+      return { ok: true };
+    } catch (e) {
+      console.warn('Vehicle not spawned', e);
+      return { ok: false, reason: 'The terminal could not spawn a vehicle. Try again.' };
+    }
   }
 
   die(killerId, killerName, weapon) {

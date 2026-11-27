@@ -104,7 +104,9 @@ class EventHorizonGame {
       getPilots: () => this.multiplayer.getVehiclePilots(),
       isBlocked: (x, z, feetY) => this.isBlockedAt(x, z, feetY),
       notify: (text) => this.ui.addChatMessage('VEHICLE', text, true),
-      onExit: (p) => this.controls.setPosition(p.x, p.y + 1.6, p.z)
+      onExit: (p) => this.controls.setPosition(p.x, p.y + 1.6, p.z),
+      getTeam: () => this.multiplayer.team,
+      spawnVehicle: (kind, team, slot) => this.multiplayer.spawnDogfightVehicle(kind, team, slot)
     });
     this.gadgets = new GadgetManager(this.scene, {
       getPilots: () => this.multiplayer.getRemotePlayerMeshes(),
@@ -436,6 +438,11 @@ class EventHorizonGame {
         if (this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight') {
           const boarded = this.dogfight.toggleBoard(this.camera.position, this.multiplayer.team);
           if (boarded) this.controls.yaw = this.dogfight.hYaw;
+        }
+      } else if (e.code === 'KeyF') {
+        // Spawn a jet or garage car at a terminal (dogfight server only)
+        if (this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight') {
+          this.dogfight.useTerminal(this.camera.position, this.multiplayer.team);
         }
       }
     });
@@ -1287,12 +1294,13 @@ class EventHorizonGame {
     }
     if (!inDog) return;
     if (this.maps.skyDome) this.maps.skyDome.position.copy(this.camera.position);
+    this.dogfight.setSpawned(this.multiplayer.getSpawnedVehicles());
     this.dogfight.updateVisuals();
     const t = performance.now();
     if (t - (this.dogTickAt || 0) > 1000) {
       this.dogTickAt = t;
       this.multiplayer.tickDogfight();
-      this.dogfight.updateScore(this.multiplayer.score, this.multiplayer.round, this.multiplayer.now());
+      this.dogfight.updateScore(this.multiplayer.score, this.multiplayer.round, this.multiplayer.now(), this.multiplayer.team);
     }
   }
 
