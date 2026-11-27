@@ -25,6 +25,18 @@ const MISSILE_RELOAD = 800;      // ms between shots
 const MISSILE_DAMAGE = 200;      // more than a pilot's 100 health + 50 shield, so one hit kills
 const MISSILE_RADIUS = 8;        // blast radius, metres
 const EXPLOSION_TIME = 1.2;      // seconds the fireball lasts
+// Stingers: one on each garage roof. They lock onto a jet of the other team in range with a clear
+// line of sight, then fire a homing missile. The target's own client runs the lock and takes the hit.
+const STINGER_RANGE = 250;       // metres
+const STINGER_LOCK = 2;          // seconds to lock
+const STINGER_COOL = 6;          // seconds between shots
+const STINGER_SPEED = 70;        // metres per second
+const STINGER_DAMAGE = 80;       // halved inside a jet, so 40
+const STINGERS = [
+  { team: 'red', x: -150, y: 11, z: -6 },
+  { team: 'blue', x: 150, y: 11, z: -6 }
+];
+const FORWARD = new THREE.Vector3(0, 0, -1);
 // Passenger seat offsets inside the car (x to the right, z to the back)
 const SEAT_OFFSETS = [[0, 0], [0.7, 0.5], [-0.7, -0.6], [0.7, -0.9]];
 
@@ -75,6 +87,11 @@ export class DogfightManager {
     this.missileShots = [];
     this.fx = [];
     this.parkedLocal = {};   // where a vehicle was left, until the shared record arrives
+    this.stingers = STINGERS.map((s) => ({ ...s, lock: 0, cool: 0 }));
+    this.stingerShots = [];  // stinger missiles in flight, aimed at this client's jet
+    this.stingerGroup = null;
+    this.warn = null;
+    this.arrow = null;
     this.reset();
   }
 
@@ -212,10 +229,12 @@ export class DogfightManager {
     if (on) {
       this.ensureCockpits();
       this.ensureTerminals();
+      this.ensureStingers();
       this.setScoreHud(true);
     } else {
       this.destroyVisuals();
       this.destroyTerminals();
+      this.destroyStingers();
       this.clearMissiles();
       this.reset();
       this.setHud(false);
@@ -516,11 +535,13 @@ export class DogfightManager {
     this.missileShots.push({ group, pos: start.clone(), dir, life: MISSILE_LIFE });
   }
 
-  // Blast: damages every pilot near the point through the normal hit system
-  explode(at) {
-    for (const t of this.deps.getTargets()) {
-      const c = new THREE.Vector3(t.pos.x, t.pos.y + 1, t.pos.z);
-      if (c.distanceTo(at) <= MISSILE_RADIUS) this.deps.sendHit(t.id, MISSILE_DAMAGE, 'Missile');
+  // Blast: damages every pilot near the point through the normal hit system (unless hurtTargets is false)
+  explode(at, hurtTargets = true) {
+    if (hurtTargets) {
+      for (const t of this.deps.getTargets()) {
+        const c = new THREE.Vector3(t.pos.x, t.pos.y + 1, t.pos.z);
+        if (c.distanceTo(at) <= MISSILE_RADIUS) this.deps.sendHit(t.id, MISSILE_DAMAGE, 'Missile');
+      }
     }
     // Fireball: dark smoke, orange fire, a bright core and a shockwave ring on the ground
     const group = new THREE.Group();
@@ -560,6 +581,8 @@ export class DogfightManager {
   updateMissiles(delta) {
     const dt = Math.min(delta, 0.05);
     if (this.enabled) {
+      this.updateStingers(dt);
+      this.updateStingerShots(dt);
       const targets = this.deps.getTargets();
       for (let i = this.missileShots.length - 1; i >= 0; i--) {
         const m = this.missileShots[i];
@@ -593,9 +616,125 @@ export class DogfightManager {
 
   clearMissiles() {
     for (const m of this.missileShots) this.scene.remove(m.group);
+    for (const m of this.stingerShots) this.scene.remove(m.group);
     for (const f of this.fx) this.scene.remove(f.group);
     this.missileShots = [];
+    this.stingerShots = [];
     this.fx = [];
+  }
+
+  // ---------- stingers (garage roofs) ----------
+  ensureStingers() {
+    if (this.stingerGroup) return;
+    this.stingerGroup = new THREE.Group();
+    const dark = new THREE.MeshStandardMaterial({ color: 0x20242e, roughness: 0.7 });
+    for (const s of this.stingers) {
+      const g = new THREE.Group();
+      const accent = new THREE.MeshBasicMaterial({ color: TEAM_TRIM[s.team] });
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.6, 1.6), dark);
+      base.position.y = 0.3;
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.6, 10), dark);
+      tube.position.y = 1.1;
+      tube.rotation.x = -0.5; // aimed up and out
+      const band = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.12, 1.62), accent);
+      band.position.y = 0.66;
+      g.add(base, tube, band);
+      g.position.set(s.x, s.y - 0.5, s.z);
+      this.stingerGroup.add(g);
+    }
+    this.scene.add(this.stingerGroup);
+  }
+
+  destroyStingers() {
+    if (this.stingerGroup) this.scene.remove(this.stingerGroup);
+    this.stingerGroup = null;
+  }
+
+  // True when a stinger at s can see the jet at (x, y, z): in range and no structure in between
+  stingerThreat(s, x, y, z) {
+    const dx = x - s.x;
+    const dy = (y + 1) - s.y;
+    const dz = z - s.z;
+    if (Math.hypot(dx, dy, dz) > STINGER_RANGE) return false;
+    for (let i = 1; i < 12; i++) {
+      const t = i / 12;
+      if (this.deps.isBlocked(s.x + dx * t, s.z + dz * t, s.y + dy * t)) return false;
+    }
+    return true;
+  }
+
+  // Runs the locks. Only the jet's pilot is targeted, and only by stingers of the other team.
+  updateStingers(dt) {
+    const me = this.deps.getTeam && this.deps.getTeam();
+    const inJet = this.active && this.seat === 0 && this.kindOf(this.vehicleId) === 'jet';
+    for (const s of this.stingers) {
+      s.cool = Math.max(0, s.cool - dt);
+      if (!inJet || !me || s.team === me) {
+        s.lock = 0;
+        continue;
+      }
+      if (this.stingerThreat(s, this.x, this.y, this.z)) {
+        s.lock = Math.min(STINGER_LOCK, s.lock + dt);
+        if (s.lock >= STINGER_LOCK && s.cool <= 0) {
+          this.fireStinger(s);
+          s.lock = 0;
+          s.cool = STINGER_COOL;
+        }
+      } else {
+        s.lock = Math.max(0, s.lock - dt * 2);
+      }
+    }
+  }
+
+  fireStinger(s) {
+    const pos = new THREE.Vector3(s.x, s.y, s.z);
+    const dir = new THREE.Vector3(this.x - s.x, (this.y + 1) - s.y, this.z - s.z).normalize();
+    const group = this.makeMissile();
+    group.position.copy(pos);
+    group.quaternion.setFromUnitVectors(FORWARD, dir);
+    this.scene.add(group);
+    this.stingerShots.push({ group, pos, dir, life: 8 });
+  }
+
+  // Homing missiles turn towards the jet and explode on it. Only the jet's own client applies the hit.
+  updateStingerShots(dt) {
+    const inJet = this.active && this.kindOf(this.vehicleId) === 'jet';
+    for (let i = this.stingerShots.length - 1; i >= 0; i--) {
+      const m = this.stingerShots[i];
+      if (!inJet) {
+        this.scene.remove(m.group);
+        this.stingerShots.splice(i, 1);
+        continue;
+      }
+      m.life -= dt;
+      const target = new THREE.Vector3(this.x, this.y + 1, this.z);
+      const want = target.clone().sub(m.pos).normalize();
+      m.dir.lerp(want, Math.min(1, dt * 3)).normalize();
+      m.pos.addScaledVector(m.dir, STINGER_SPEED * dt);
+      m.group.position.copy(m.pos);
+      m.group.quaternion.setFromUnitVectors(FORWARD, m.dir);
+      const hitMe = target.distanceTo(m.pos) < 3;
+      const boom = hitMe || m.life <= 0 || m.pos.y <= 0.2 || this.deps.isBlocked(m.pos.x, m.pos.z, m.pos.y);
+      if (boom) {
+        if (hitMe) this.deps.hurt(STINGER_DAMAGE);
+        this.explode(m.pos.clone(), false);
+        this.scene.remove(m.group);
+        this.stingerShots.splice(i, 1);
+      }
+    }
+  }
+
+  // The nearest thing to warn about: a stinger missile in flight, or a stinger locking on
+  alertTarget() {
+    if (this.stingerShots.length) {
+      const m = this.stingerShots[0];
+      return { x: m.pos.x, z: m.pos.z, text: 'INCOMING STINGER MISSILE' };
+    }
+    const s = this.stingers.find((st) => st.lock > 0);
+    if (s) {
+      return { x: s.x, z: s.z, text: `STINGER LOCK ${Math.round((s.lock / STINGER_LOCK) * 100)}% · ${s.team.toUpperCase()} GARAGE` };
+    }
+    return null;
   }
 
   // ---------- boarding ----------
@@ -870,11 +1009,27 @@ export class DogfightManager {
       this.heading.id = 'dog-heading';
       this.heading.style.cssText = 'position:fixed; top:112px; left:50%; transform:translateX(-50%); z-index:50; font-family:var(--font-display); color:#e6f7ff; background:rgba(5,10,20,0.6); border-radius:4px; padding:4px 14px; letter-spacing:3px; pointer-events:none; display:none;';
       document.body.appendChild(this.heading);
+
+      this.warn = document.createElement('div');
+      this.warn.id = 'dog-warn';
+      this.warn.style.cssText = 'position:fixed; top:160px; left:50%; transform:translateX(-50%); z-index:51; font-family:var(--font-display); color:#fff; background:rgba(255,40,80,0.85); border-radius:4px; padding:6px 16px; letter-spacing:2px; font-size:0.85rem; box-shadow:0 0 18px rgba(255,40,80,0.7); pointer-events:none; display:none;';
+      document.body.appendChild(this.warn);
+
+      // Points from the crosshair towards whatever is threatening you (rotated each frame)
+      this.arrow = document.createElement('div');
+      this.arrow.id = 'dog-arrow';
+      this.arrow.style.cssText = 'position:fixed; left:50%; top:50%; width:0; height:0; z-index:51; pointer-events:none; display:none;';
+      this.arrow.innerHTML = '<div style="position:absolute; left:-14px; top:-330px; width:0; height:0; border-left:14px solid transparent; border-right:14px solid transparent; border-bottom:26px solid #ff4d6d; filter:drop-shadow(0 0 6px #ff4d6d);"></div>';
+      document.body.appendChild(this.arrow);
     }
     const shown = on ? 'block' : 'none';
     this.hud.style.display = shown;
     this.reticle.style.display = shown;
     this.heading.style.display = shown;
+    if (!on) {
+      this.warn.style.display = 'none';
+      this.arrow.style.display = 'none';
+    }
     if (on) this.drawReticle();
   }
 
@@ -934,7 +1089,30 @@ export class DogfightManager {
     // Compass strip: 0 is north, turning clockwise with the vehicle
     const deg = Math.round((((360 - this.hYaw * 180 / Math.PI) % 360) + 360) % 360) % 360;
     const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    this.heading.innerHTML = `<span style="color:${c};">${names[Math.round(deg / 45) % 8]}</span> &nbsp;${String(deg).padStart(3, '0')}°`;
+    let marker = '';
+
+    // Stinger warning: a banner, an arrow from the crosshair to the threat, and a red mark on the compass
+    const alert = this.alertTarget();
+    if (alert) {
+      const dx = alert.x - this.x;
+      const dz = alert.z - this.z;
+      const fwd = dx * -Math.sin(this.hYaw) + dz * -Math.cos(this.hYaw);
+      const lat = dx * Math.cos(this.hYaw) + dz * -Math.sin(this.hYaw); // positive = to the right
+      const rel = Math.atan2(lat, fwd);
+      const side = Math.abs(rel) < 0.2 ? 'AHEAD' : `${Math.round(Math.abs(rel) * 180 / Math.PI)}° ${rel > 0 ? 'RIGHT' : 'LEFT'}`;
+      this.warn.style.display = 'block';
+      this.warn.textContent = `⚠ ${alert.text} · ${side}`;
+      this.arrow.style.display = 'block';
+      this.arrow.style.transform = `rotate(${rel}rad)`;
+      // Where it is on the compass: heading to the threat
+      const toHeading = ((360 - Math.atan2(-dx, -dz) * 180 / Math.PI) % 360 + 360) % 360;
+      marker = ` <span style="color:#ff4d6d;">▼ ${Math.round(toHeading)}°</span>`;
+    } else {
+      this.warn.style.display = 'none';
+      this.arrow.style.display = 'none';
+    }
+
+    this.heading.innerHTML = `<span style="color:${c};">${names[Math.round(deg / 45) % 8]}</span> &nbsp;${String(deg).padStart(3, '0')}°${marker}`;
   }
 
   // Score, your team and round timer at the top of the screen (dogfight server only)
