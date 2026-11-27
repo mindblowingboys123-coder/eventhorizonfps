@@ -31,7 +31,48 @@ export class DogfightManager {
     this.visuals = {};
     this.hud = null;
     this.scoreHud = null;
+    this.cockpits = null;
     this.reset();
+  }
+
+  // Frames and dashboards on the camera, so you can see you are inside
+  ensureCockpits() {
+    if (this.cockpits) return;
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1a1f2b, roughness: 0.6, metalness: 0.4 });
+    const glow = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const add = (g, geo, mat, x, y, z, rx = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.rotation.x = rx;
+      g.add(m);
+    };
+
+    const jet = new THREE.Group();
+    add(jet, new THREE.BoxGeometry(2.8, 0.7, 0.9), dark, 0, -0.62, -0.95, -0.35);   // dashboard
+    add(jet, new THREE.BoxGeometry(2.2, 0.06, 0.06), glow, 0, -0.36, -1.0, -0.35);  // glowing strip
+    add(jet, new THREE.BoxGeometry(0.16, 1.6, 0.16), dark, -1.25, 0.2, -0.8);      // left frame
+    add(jet, new THREE.BoxGeometry(0.16, 1.6, 0.16), dark, 1.25, 0.2, -0.8);       // right frame
+    add(jet, new THREE.BoxGeometry(2.6, 0.16, 0.16), dark, 0, 1.0, -0.8);          // top frame
+    add(jet, new THREE.BoxGeometry(0.1, 0.9, 0.1), dark, 0, 0.6, -0.8);            // centre post
+
+    const car = new THREE.Group();
+    add(car, new THREE.BoxGeometry(2.6, 0.6, 1.0), dark, 0, -0.55, -1.1, -0.3);    // dashboard
+    add(car, new THREE.BoxGeometry(0.16, 1.3, 0.16), dark, -1.1, 0.3, -1.0);       // left pillar
+    add(car, new THREE.BoxGeometry(0.16, 1.3, 0.16), dark, 1.1, 0.3, -1.0);        // right pillar
+    add(car, new THREE.BoxGeometry(2.4, 0.16, 0.16), dark, 0, 0.95, -1.0);         // roof frame
+    add(car, new THREE.BoxGeometry(0.1, 0.8, 0.1), dark, 0, 0.5, -1.0);            // centre post
+
+    for (const g of [jet, car]) {
+      g.visible = false;
+      this.deps.camera.add(g);
+    }
+    this.cockpits = { jet, car };
+  }
+
+  showCockpit(which) {
+    if (!this.cockpits) return;
+    this.cockpits.jet.visible = which === 'jet';
+    this.cockpits.car.visible = which === 'car';
   }
 
   reset() {
@@ -52,12 +93,14 @@ export class DogfightManager {
     this.enabled = on;
     if (on) {
       this.ensureVisuals();
+      this.ensureCockpits();
       this.setScoreHud(true);
     } else {
       this.destroyVisuals();
       this.reset();
       this.setHud(false);
       this.setScoreHud(false);
+      this.showCockpit(null);
     }
   }
 
@@ -185,6 +228,7 @@ export class DogfightManager {
     this.active = true;
     this.vehicleId = id;
     this.seat = seat;
+    this.showCockpit(id);
     this.x = st.x; this.y = st.y; this.z = st.z;
     this.hYaw = st.hYaw || 0;
     this.hPitch = 0;
@@ -214,6 +258,7 @@ export class DogfightManager {
     this.info = null;
     this.veh = null;
     this.setHud(false);
+    this.showCockpit(null);
   }
 
   // ---------- movement ----------
@@ -299,7 +344,7 @@ export class DogfightManager {
     else this.speed = Math.min(0, this.speed + 6 * dt);
 
     if (Math.abs(this.speed) > 0.5) {
-      this.hYaw -= (Number(input.left) - Number(input.right)) * 1.6 * dt;
+      this.hYaw += (Number(input.left) - Number(input.right)) * 1.6 * dt;
     }
     const nx = this.x - Math.sin(this.hYaw) * this.speed * dt;
     const nz = this.z - Math.cos(this.hYaw) * this.speed * dt;

@@ -100,6 +100,7 @@ class EventHorizonGame {
     this.story = new StoryCampaign(this.scene, this.enemies, this.maps, this.sound, this.auth);
     this.multiplayer = new MultiplayerClient(this.scene, this.skins, this.weapons, this.sound);
     this.dogfight = new DogfightManager(this.scene, {
+      camera: this.camera,
       getPilots: () => this.multiplayer.getVehiclePilots(),
       isBlocked: (x, z, feetY) => this.isBlockedAt(x, z, feetY),
       notify: (text) => this.ui.addChatMessage('VEHICLE', text, true),
