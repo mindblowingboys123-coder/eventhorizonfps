@@ -23,7 +23,8 @@ const MISSILE_SPEED = 90;        // metres per second
 const MISSILE_LIFE = 5;          // seconds before it burns out
 const MISSILE_RELOAD = 800;      // ms between shots
 const MISSILE_DAMAGE = 120;
-const MISSILE_RADIUS = 6;        // blast radius, metres
+const MISSILE_RADIUS = 8;        // blast radius, metres
+const EXPLOSION_TIME = 1.2;      // seconds the fireball lasts
 // Passenger seat offsets inside the car (x to the right, z to the back)
 const SEAT_OFFSETS = [[0, 0], [0.7, 0.5], [-0.7, -0.6], [0.7, -0.9]];
 
@@ -129,11 +130,8 @@ export class DogfightManager {
     const jet = new THREE.Group();
     add(jet, new THREE.BoxGeometry(2.8, 0.7, 0.9), dark, 0, -0.62, -0.95, -0.35);   // dashboard
     add(jet, new THREE.BoxGeometry(2.2, 0.06, 0.06), trim, 0, -0.27, -1.0, -0.35);  // team trim
-    add(jet, new THREE.BoxGeometry(0.16, 1.6, 0.16), frame, -1.25, 0.2, -0.8);      // left frame
-    add(jet, new THREE.BoxGeometry(0.16, 1.6, 0.16), frame, 1.25, 0.2, -0.8);       // right frame
-    add(jet, new THREE.BoxGeometry(2.6, 0.16, 0.16), frame, 0, 1.0, -0.8);          // top frame
-    add(jet, new THREE.BoxGeometry(2.4, 0.05, 0.05), trim, 0, 0.9, -0.88);          // team trim on the frame
-    add(jet, new THREE.BoxGeometry(0.1, 0.9, 0.1), frame, 0, 0.6, -0.8);            // centre post
+    // Open canopy: no side or top frames, just a thin team rim along the top
+    add(jet, new THREE.BoxGeometry(2.6, 0.04, 0.04), trim, 0, 0.95, -0.9);          // team rim
     add(jet, new THREE.CylinderGeometry(0.05, 0.07, 0.5, 8), frame, 0, -0.78, -0.6, 0.3); // stick
     add(jet, new THREE.BoxGeometry(0.25, 0.15, 0.4), frame, 0.9, -0.7, -0.8);       // throttle
     // Four missile lights, one per missile on the wings
@@ -146,8 +144,10 @@ export class DogfightManager {
     // The car has no roof, so the cabin walls are drawn from inside around you. Without them
     // the view over the rim shows only the ground and sky.
     const car = new THREE.Group();
-    const cabin = new THREE.MeshStandardMaterial({ color: 0x2f3746, roughness: 0.8, metalness: 0.2 });
-    const glass = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide });
+    // Walls are tinted glass so the view stays open; the floor stays solid
+    const cabin = new THREE.MeshStandardMaterial({ color: 0x2f3746, roughness: 0.8, metalness: 0.2, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0x2f3746, roughness: 0.8, metalness: 0.2 });
+    const glass = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide });
     const floorY = -1.075;   // the car floor, relative to your eyes
     const topY = 0.35;       // the top of the cabin walls
     const wallH = topY - floorY;
@@ -158,7 +158,7 @@ export class DogfightManager {
       m.rotation.set(rx, ry, 0);
       car.add(m);
     };
-    panel(2.2, 4.4, 0, floorY, 0, -Math.PI / 2, 0, cabin);      // floor
+    panel(2.2, 4.4, 0, floorY, 0, -Math.PI / 2, 0, floorMat);   // floor
     panel(4.4, wallH, -1.1, midY, 0, 0, Math.PI / 2, cabin);    // left wall
     panel(4.4, wallH, 1.1, midY, 0, 0, -Math.PI / 2, cabin);    // right wall
     panel(2.2, wallH, 0, midY, 2.2, 0, Math.PI, cabin);         // back wall (behind the driver)
@@ -168,9 +168,9 @@ export class DogfightManager {
     add(car, new THREE.BoxGeometry(0.4, 0.12, 0.02), trim, 0, -0.42, -1.07);        // team trim gauge
     add(car, new THREE.TorusGeometry(0.22, 0.03, 8, 20), frame, 0, -0.3, -0.75, 0.9); // steering wheel
     add(car, new THREE.CylinderGeometry(0.03, 0.03, 0.5, 6), frame, 0, -0.5, -0.9, 0.9); // column
-    add(car, new THREE.BoxGeometry(0.16, wallH, 0.16), frame, -1.1, midY, -1.0);    // left pillar
-    add(car, new THREE.BoxGeometry(0.16, wallH, 0.16), frame, 1.1, midY, -1.0);     // right pillar
-    add(car, new THREE.BoxGeometry(2.4, 0.16, 0.16), frame, 0, topY, -1.0);         // roof frame
+    add(car, new THREE.BoxGeometry(0.08, wallH, 0.08), frame, -1.1, midY, -1.0);    // left pillar
+    add(car, new THREE.BoxGeometry(0.08, wallH, 0.08), frame, 1.1, midY, -1.0);     // right pillar
+    add(car, new THREE.BoxGeometry(2.4, 0.06, 0.06), frame, 0, topY, -1.0);         // roof rim
     add(car, new THREE.BoxGeometry(2.3, 0.05, 0.05), trim, 0, topY - 0.1, -1.06);   // team trim on the frame
     add(car, new THREE.BoxGeometry(0.1, 0.9, 0.1), frame, 0, -0.1, -1.0);           // centre post
     add(car, new THREE.BoxGeometry(0.6, 0.3, 0.6), seat, -0.45, -0.5, -0.4);        // driver seat back
@@ -522,11 +522,38 @@ export class DogfightManager {
       const c = new THREE.Vector3(t.pos.x, t.pos.y + 1, t.pos.z);
       if (c.distanceTo(at) <= MISSILE_RADIUS) this.deps.sendHit(t.id, MISSILE_DAMAGE, 'Missile');
     }
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0xff8a3a, transparent: true, opacity: 0.85 }));
-    mesh.position.copy(at);
-    this.scene.add(mesh);
-    this.fx.push({ mesh, life: 0.45, max: 0.45 });
+    // Fireball: dark smoke, orange fire, a bright core and a shockwave ring on the ground
+    const group = new THREE.Group();
+    group.position.copy(at);
+    const smoke = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x333842, transparent: true, opacity: 0.5, depthWrite: false }));
+    const fire = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.8, depthWrite: false }));
+    const core = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 1, depthWrite: false }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 40),
+      new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = -at.y + 0.2;
+    group.add(smoke, fire, core, ring);
+    this.scene.add(group);
+    this.fx.push({ group, life: EXPLOSION_TIME, max: EXPLOSION_TIME });
+    this.animateExplosion(this.fx[this.fx.length - 1]);
+  }
+
+  // Grows the fireball from 3 to 14 metres and fades it out
+  animateExplosion(f) {
+    const p = 1 - f.life / f.max;
+    const R = 3 + 11 * Math.sqrt(p);
+    const [smoke, fire, core, ring] = f.group.children;
+    smoke.scale.setScalar(R);
+    smoke.material.opacity = 0.5 * (1 - p);
+    fire.scale.setScalar(R * 0.75);
+    fire.material.opacity = 0.8 * (1 - p);
+    core.scale.setScalar(1 + R * 0.4 * (1 - p));
+    core.material.opacity = 1 - p;
+    ring.scale.setScalar(R * 1.3);
+    ring.material.opacity = 0.9 * (1 - p);
   }
 
   // Moves the missiles in flight and the blasts; runs every frame in the dogfight server
@@ -556,18 +583,17 @@ export class DogfightManager {
       const f = this.fx[i];
       f.life -= dt;
       if (f.life <= 0) {
-        this.scene.remove(f.mesh);
+        this.scene.remove(f.group);
         this.fx.splice(i, 1);
       } else {
-        f.mesh.scale.setScalar(1 + (f.max - f.life) * 12);
-        f.mesh.material.opacity = 0.85 * (f.life / f.max);
+        this.animateExplosion(f);
       }
     }
   }
 
   clearMissiles() {
     for (const m of this.missileShots) this.scene.remove(m.group);
-    for (const f of this.fx) this.scene.remove(f.mesh);
+    for (const f of this.fx) this.scene.remove(f.group);
     this.missileShots = [];
     this.fx = [];
   }
@@ -732,6 +758,33 @@ export class DogfightManager {
     return { x: this.x + off[0], y: this.y + CAR_EYE - 0.3, z: this.z + off[1], yaw: aim.yaw, pitch: aim.pitch };
   }
 
+  // True when the jet's body (nose, tail and wing tips) would be inside a structure at (x, y, z).
+  // The body zone is the jet's height above the feet, and the feet never go below the floor top.
+  hitsStructure(x, y, z) {
+    const feet = Math.max(y - 0.8, 0.5);
+    const fx = -Math.sin(this.hYaw), fz = -Math.cos(this.hYaw);   // forward
+    const rx = Math.cos(this.hYaw), rz = -Math.sin(this.hYaw);    // right
+    const pts = [
+      [x, z],
+      [x + fx * 4, z + fz * 4],          // nose
+      [x - fx * 3.5, z - fz * 3.5],      // tail
+      [x - rx * 4.5, z - rz * 4.5],      // left wing tip
+      [x + rx * 4.5, z + rz * 4.5]       // right wing tip
+    ];
+    return pts.some(([px, pz]) => this.deps.isBlocked(px, pz, feet));
+  }
+
+  // The jet stops dead and the pilot takes a crash hit (at most one a second)
+  crash() {
+    this.speed = 0;
+    const now = performance.now();
+    if (now - (this.lastCrash || 0) > 1000) {
+      this.lastCrash = now;
+      this.deps.notify('Crashed into a structure!');
+      if (this.deps.hurt) this.deps.hurt(30);
+    }
+  }
+
   flyJet(dt, input) {
     // Throttle burns fuel. With no fuel the engine is off and the jet glides down.
     if (input.forward && this.fuel > 0) {
@@ -745,9 +798,14 @@ export class DogfightManager {
     }
 
     const cp = Math.cos(this.hPitch);
-    this.x += -Math.sin(this.hYaw) * cp * this.speed * dt;
-    this.y += Math.sin(this.hPitch) * this.speed * dt;
-    this.z += -Math.cos(this.hYaw) * cp * this.speed * dt;
+    const nx = this.x - Math.sin(this.hYaw) * cp * this.speed * dt;
+    const ny = this.y + Math.sin(this.hPitch) * this.speed * dt;
+    const nz = this.z - Math.cos(this.hYaw) * cp * this.speed * dt;
+    if (this.hitsStructure(nx, ny, nz)) {
+      this.crash();
+    } else {
+      this.x = nx; this.y = ny; this.z = nz;
+    }
 
     // Below stall speed the jet drops
     if (this.speed < 22) this.y -= (22 - this.speed) * 1.2 * dt;
@@ -778,36 +836,94 @@ export class DogfightManager {
   }
 
   // ---------- HUD ----------
+  // Your team's colour, used for the HUD accents
+  teamCss() {
+    const team = this.deps.getTeam && this.deps.getTeam();
+    return TEAM_CSS[team] || '#00f0ff';
+  }
+
+  // The panel (bottom left), the crosshair in the middle and the compass strip at the top
   setHud(on) {
     if (!this.hud) {
       this.hud = document.createElement('div');
       this.hud.id = 'dog-hud';
-      this.hud.style.cssText = 'position:fixed; left:16px; bottom:120px; z-index:50; font-family:var(--font-display); color:#e6f7ff; background:rgba(5,7,13,0.75); border:1px solid rgba(0,240,255,0.4); border-radius:6px; padding:10px 12px; min-width:200px; pointer-events:none; display:none;';
+      this.hud.style.cssText = 'position:fixed; left:16px; bottom:120px; z-index:50; font-family:var(--font-display); color:#e6f7ff; min-width:250px; pointer-events:none; display:none;';
       document.body.appendChild(this.hud);
+
+      this.reticle = document.createElement('div');
+      this.reticle.id = 'dog-reticle';
+      this.reticle.style.cssText = 'position:fixed; left:50%; top:50%; width:0; height:0; z-index:50; pointer-events:none; display:none;';
+      document.body.appendChild(this.reticle);
+
+      this.heading = document.createElement('div');
+      this.heading.id = 'dog-heading';
+      this.heading.style.cssText = 'position:fixed; top:112px; left:50%; transform:translateX(-50%); z-index:50; font-family:var(--font-display); color:#e6f7ff; background:rgba(5,10,20,0.6); border-radius:4px; padding:4px 14px; letter-spacing:3px; pointer-events:none; display:none;';
+      document.body.appendChild(this.heading);
     }
-    this.hud.style.display = on ? 'block' : 'none';
+    const shown = on ? 'block' : 'none';
+    this.hud.style.display = shown;
+    this.reticle.style.display = shown;
+    this.heading.style.display = shown;
+    if (on) this.drawReticle();
+  }
+
+  drawReticle() {
+    const c = this.teamCss();
+    this.reticle.innerHTML = `
+      <div style="position:absolute; left:-14px; top:-14px; width:28px; height:28px; border:2px solid ${c}; border-radius:50%; opacity:0.85; box-shadow:0 0 10px ${c};"></div>
+      <div style="position:absolute; left:-1px; top:-24px; width:2px; height:8px; background:${c};"></div>
+      <div style="position:absolute; left:-1px; top:16px; width:2px; height:8px; background:${c};"></div>
+      <div style="position:absolute; left:-24px; top:-1px; width:8px; height:2px; background:${c};"></div>
+      <div style="position:absolute; left:16px; top:-1px; width:8px; height:2px; background:${c};"></div>
+      <div style="position:absolute; left:-2px; top:-2px; width:4px; height:4px; border-radius:50%; background:${c};"></div>`;
   }
 
   updateHud() {
     if (!this.hud || !this.active) return;
     const kind = this.kindOf(this.vehicleId);
+    const c = this.teamCss();
+    const teamName = (this.deps.getTeam && this.deps.getTeam()) ? this.deps.getTeam().toUpperCase() : 'NO TEAM';
+
+    // A gauge: label, value and a glowing bar
+    const bar = (label, pct, colour, value) => `
+      <div style="display:flex; justify-content:space-between; font-size:0.7rem; letter-spacing:2px; color:#8aa; margin-top:6px;">
+        <span>${label}</span><b style="color:#e6f7ff;">${value}</b></div>
+      <div style="height:6px; background:#1b2433; border-radius:3px; margin-top:3px; overflow:hidden;">
+        <div style="height:100%; width:${Math.max(0, Math.min(100, pct))}%; background:${colour}; box-shadow:0 0 8px ${colour};"></div></div>`;
+    const panel = (body) => `<div style="background:linear-gradient(135deg, rgba(6,14,26,0.85), rgba(6,14,26,0.45)); border:1px solid ${c}; border-left:4px solid ${c}; border-radius:4px; padding:10px 14px; box-shadow:0 0 18px ${c}44;">${body}</div>`;
+
     if (kind === 'jet' && this.seat === 0) {
       const fuel = Math.round(this.fuel);
       const alt = Math.round(this.y);
-      const altPct = Math.min(100, (this.y / JET_CEILING) * 100);
-      this.hud.innerHTML = `
-        <div style="font-size:0.8rem; letter-spacing:1px;">ALTITUDE <b>${alt} m</b> <span style="color:#7fa;">/ ${JET_CEILING} m</span></div>
-        <div style="height:6px; background:#1b2433; border-radius:3px; margin:4px 0 8px;"><div style="height:100%; width:${altPct}%; background:#7fffd4; border-radius:3px;"></div></div>
-        <div style="font-size:0.8rem; letter-spacing:1px;">FUEL <b>${fuel}%</b>${fuel <= 0 ? ' <span style="color:#ff4d6d;">OUT OF FUEL</span>' : ''}</div>
-        <div style="height:6px; background:#1b2433; border-radius:3px; margin:4px 0 8px;"><div style="height:100%; width:${fuel}%; background:${fuel < 20 ? '#ff4d6d' : '#00f0ff'}; border-radius:3px;"></div></div>
-        <div style="font-size:0.8rem; letter-spacing:1px;">MISSILES <b>${this.missiles}/${MISSILE_COUNT}</b> <span style="color:#8aa;">· G to fire</span></div>
-        <div style="font-size:0.7rem; color:#8aa;">SPEED ${Math.round(this.speed)} · V to land and get out</div>`;
+      const pips = Array.from({ length: MISSILE_COUNT }, (_, i) =>
+        `<span style="display:inline-block; width:14px; height:14px; margin-right:4px; border:1px solid ${c}; background:${i < this.missiles ? c : 'transparent'};"></span>`).join('');
+      this.hud.innerHTML = panel(`
+        <div style="font-size:0.75rem; letter-spacing:3px; color:${c};">JET · ${teamName}</div>
+        ${bar('ALTITUDE', (this.y / JET_CEILING) * 100, '#7fffd4', `${alt} m`)}
+        ${bar('SPEED', (this.speed / JET_MAX_SPEED) * 100, c, `${Math.round(this.speed)}`)}
+        ${bar('FUEL', fuel, fuel < 20 ? '#ff4d6d' : '#00f0ff', `${fuel}%${fuel <= 0 ? ' OUT' : ''}`)}
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:0.7rem; letter-spacing:2px; color:#8aa;">
+          <span>MISSILES ${pips}</span><span>G FIRE</span></div>
+        <div style="font-size:0.65rem; color:#6b7a90; margin-top:6px;">V land and get out</div>`);
+    } else if (kind === 'jet') {
+      this.hud.innerHTML = panel(`
+        <div style="font-size:0.75rem; letter-spacing:3px; color:${c};">JET PASSENGER · ${teamName}</div>
+        <div style="font-size:0.65rem; color:#6b7a90; margin-top:6px;">V to get out when stopped</div>`);
     } else {
-      const label = kind === 'jet' ? 'JET PASSENGER'
-        : (this.seat === 0 ? 'GARAGE CAR · DRIVER' : 'GARAGE CAR · PASSENGER');
-      this.hud.innerHTML = `<div style="font-size:0.8rem; letter-spacing:1px;">${label}</div>
-        <div style="font-size:0.7rem; color:#8aa; margin-top:4px;">V to get out when stopped</div>`;
+      const speedPct = (Math.abs(this.speed) / CAR_MAX) * 100;
+      const body = this.seat === 0
+        ? `<div style="font-size:0.75rem; letter-spacing:3px; color:${c};">GARAGE CAR · DRIVER · ${teamName}</div>
+           ${bar('SPEED', speedPct, c, `${Math.round(Math.abs(this.speed) * 4)} km/h`)}
+           <div style="font-size:0.65rem; color:#6b7a90; margin-top:6px;">Mouse aims the turret · V to get out when stopped</div>`
+        : `<div style="font-size:0.75rem; letter-spacing:3px; color:${c};">GARAGE CAR · PASSENGER · ${teamName}</div>
+           <div style="font-size:0.65rem; color:#6b7a90; margin-top:6px;">Left click to shoot · V to get out when stopped</div>`;
+      this.hud.innerHTML = panel(body);
     }
+
+    // Compass strip: 0 is north, turning clockwise with the vehicle
+    const deg = Math.round((((360 - this.hYaw * 180 / Math.PI) % 360) + 360) % 360) % 360;
+    const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    this.heading.innerHTML = `<span style="color:${c};">${names[Math.round(deg / 45) % 8]}</span> &nbsp;${String(deg).padStart(3, '0')}°`;
   }
 
   // Score, your team and round timer at the top of the screen (dogfight server only)

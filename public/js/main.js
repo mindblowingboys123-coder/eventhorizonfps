@@ -110,7 +110,8 @@ class EventHorizonGame {
       getParked: () => this.multiplayer.getParked(),
       park: (id, st) => this.multiplayer.parkVehicle(id, st),
       getTargets: () => this.multiplayer.getRemotePlayerMeshes().map((p) => ({ id: p.id, pos: p.mesh.position })),
-      sendHit: (id, dmg, weapon) => this.multiplayer.sendHit(id, dmg, weapon)
+      sendHit: (id, dmg, weapon) => this.multiplayer.sendHit(id, dmg, weapon),
+      hurt: (dmg) => this.takeDamage(dmg)
     });
     this.gadgets = new GadgetManager(this.scene, {
       getPilots: () => this.multiplayer.getRemotePlayerMeshes(),
