@@ -139,16 +139,18 @@ class EventHorizonGame {
     const navShop = document.getElementById('nav-btn-shop');
     const navSettings = document.getElementById('nav-btn-settings');
     const navAdmin = document.getElementById('nav-btn-admin');
+    const navChat = document.getElementById('nav-btn-chat');
 
     const viewStory = document.getElementById('view-story');
     const viewMP = document.getElementById('view-multiplayer');
     const viewShop = document.getElementById('view-shop');
     const viewSettings = document.getElementById('view-settings');
     const viewAdmin = document.getElementById('view-admin');
+    const viewChat = document.getElementById('view-chat');
 
     const switchView = (activeBtn, activeView) => {
-      [navStory, navMP, navShop, navSettings, navAdmin].forEach(b => { if (b) b.classList.remove('primary'); });
-      [viewStory, viewMP, viewShop, viewSettings, viewAdmin].forEach(v => { if (v) v.style.display = 'none'; });
+      [navStory, navMP, navShop, navSettings, navAdmin, navChat].forEach(b => { if (b) b.classList.remove('primary'); });
+      [viewStory, viewMP, viewShop, viewSettings, viewAdmin, viewChat].forEach(v => { if (v) v.style.display = 'none'; });
       activeBtn.classList.add('primary');
       activeView.style.display = 'block';
     };
@@ -163,6 +165,14 @@ class EventHorizonGame {
       this.shop.renderSkinsTab(document.getElementById('tab-content-skins'));
     });
     navSettings.addEventListener('click', () => switchView(navSettings, viewSettings));
+    if (navChat && viewChat) {
+      navChat.addEventListener('click', () => {
+        switchView(navChat, viewChat);
+        // Load the chat page the first time, so the game does not fetch it until it is wanted
+        const frame = document.getElementById('chat-frame');
+        if (frame && !frame.getAttribute('src')) frame.src = frame.dataset.src;
+      });
+    }
     if (navAdmin) {
       navAdmin.addEventListener('click', () => {
         switchView(navAdmin, viewAdmin);
