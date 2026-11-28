@@ -109,6 +109,9 @@ class EventHorizonGame {
       spawnVehicle: (kind, team, slot) => this.multiplayer.spawnDogfightVehicle(kind, team, slot),
       getParked: () => this.multiplayer.getParked(),
       park: (id, st) => this.multiplayer.parkVehicle(id, st),
+      getStations: () => this.multiplayer.getStations(),
+      writeStation: (team, rec) => this.multiplayer.writeStation(team, rec),
+      getUid: () => this.multiplayer.myUid,
       getTargets: () => this.multiplayer.getRemotePlayerMeshes().map((p) => ({ id: p.id, pos: p.mesh.position })),
       sendHit: (id, dmg, weapon) => this.multiplayer.sendHit(id, dmg, weapon),
       hurt: (dmg) => this.takeDamage(dmg)
@@ -430,11 +433,15 @@ class EventHorizonGame {
       if (e.code === 'KeyZ') this.weapons.aiming = false;
     });
 
-    // Shooting with Left Click
+    // Shooting with Left Click. Manning a stinger station, left click is its trigger instead.
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 0 && this.controls.isLocked && !this.isDead) {
-        this.triggerPlayerShoot();
+        if (this.dogfight.station) this.dogfight.setTrigger(true);
+        else this.triggerPlayerShoot();
       }
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.dogfight.setTrigger(false);
     });
 
     // Keybindings: 1-4 for weapons, R for reload
@@ -461,6 +468,11 @@ class EventHorizonGame {
         if (this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight') {
           const boarded = this.dogfight.toggleBoard(this.camera.position, this.multiplayer.team);
           if (boarded) this.controls.yaw = this.dogfight.hYaw;
+        }
+      } else if (e.code === 'KeyH') {
+        // Man or leave your team's stinger station (dogfight server only)
+        if (this.gameState === 'MULTIPLAYER' && this.multiplayer.currentRoom === 'dogfight') {
+          this.dogfight.toggleStation(this.camera.position, this.multiplayer.team);
         }
       } else if (e.code === 'KeyG') {
         // Fire a missile from the jet (dogfight server, jet pilot only)
@@ -1523,12 +1535,17 @@ class EventHorizonGame {
 
       this.gadgets.update(delta);
       this.dogfightFrame(delta);
+      if (this.isDead && this.dogfight.station) this.dogfight.leaveStation(false);
       if (this.isDead && this.deathView) {
         this.updateDeathView(now);
       } else if (this.gadgets.car || this.gadgets.lastCar) {
         this.updateCarView(delta);
       } else if (this.dogfight.active) {
         this.updateDogfightView(delta);
+      } else if (this.dogfight.station) {
+        // Manning a stinger station: the mouse aims, WASD does not move you
+        const sp = this.dogfight.updateStation(delta, { yaw: this.controls.yaw, pitch: this.controls.pitch });
+        if (sp) this.camera.position.set(sp.x, sp.y, sp.z);
       } else if (this.strike) {
         this.updateStrikeView();
       } else {

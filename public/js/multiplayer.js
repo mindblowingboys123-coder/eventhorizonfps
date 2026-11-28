@@ -142,6 +142,7 @@ export class MultiplayerClient {
     this.lastMap = null;
     this.spawnedVehicles = {}; // dogfight: extra jets and cars from the terminals, shared by all
     this.parked = {};          // dogfight: where each vehicle was last left, shared by all
+    this.stations = {};        // dogfight: stinger stations being manned, per team (see dogfight.js)
     this.serverOffset = 0;
     this.clockStarted = false;
     this.listenerCleanups = [];
@@ -361,6 +362,7 @@ export class MultiplayerClient {
       this.listen(R('round'), 'value', (snap) => { this.round = snap.val() || null; });
       this.listen(R('vehicles'), 'value', (snap) => { this.spawnedVehicles = snap.val() || {}; });
       this.listen(R('parked'), 'value', (snap) => { this.parked = snap.val() || {}; });
+      this.listen(R('stations'), 'value', (snap) => { this.stations = snap.val() || {}; });
     }
     this.listen(R('meta/map'), 'value', (snap) => {
       const raw = snap.val() ? String(snap.val()) : null;
@@ -540,6 +542,19 @@ export class MultiplayerClient {
   // Where each vehicle was last left (shared record, see dogfight.js)
   getParked() {
     return this.parked || {};
+  }
+
+  // Stinger stations being manned, per team (shared record, see dogfight.js)
+  getStations() {
+    return this.stations || {};
+  }
+
+  // Writes a team's station state, or removes it when rec is null
+  writeStation(team, rec) {
+    if (this.currentRoom !== 'dogfight' || !this.db) return;
+    const ref = this.db.ref(`rooms/dogfight/stations/${team}`);
+    const done = rec ? ref.set(rec) : ref.remove();
+    done.catch((e) => console.warn('Stinger station not updated', e));
   }
 
   parkVehicle(id, st) {

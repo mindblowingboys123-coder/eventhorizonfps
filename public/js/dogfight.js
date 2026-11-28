@@ -32,9 +32,11 @@ const STINGER_LOCK = 2;          // seconds to lock
 const STINGER_COOL = 6;          // seconds between shots
 const STINGER_SPEED = 70;        // metres per second
 const STINGER_DAMAGE = 80;       // halved inside a jet, so 40
+const STATION_CONE = Math.cos(0.1); // crosshair cone for locking, cosine of the angle
+// Stinger stations, one inside each garage at the back. Walk up and press H to man one.
 const STINGERS = [
-  { team: 'red', x: -150, y: 11, z: -6 },
-  { team: 'blue', x: 150, y: 11, z: -6 }
+  { team: 'red', x: -141, y: 0, z: -9 },
+  { team: 'blue', x: 141, y: 0, z: -9 }
 ];
 const FORWARD = new THREE.Vector3(0, 0, -1);
 // Passenger seat offsets inside the car (x to the right, z to the back)
@@ -87,9 +89,23 @@ export class DogfightManager {
     this.missileShots = [];
     this.fx = [];
     this.parkedLocal = {};   // where a vehicle was left, until the shared record arrives
-    this.stingers = STINGERS.map((s) => ({ ...s, lock: 0, cool: 0 }));
-    this.stingerShots = [];  // stinger missiles in flight, aimed at this client's jet
+    this.stingers = STINGERS.map((s) => ({ ...s, cool: 0 })); // cool: seconds until it can fire again
+    this.stingerShots = [];   // stinger missiles this client fired, in flight
     this.stingerGroup = null;
+    this.station = null;      // { idx, team } the stinger station this client is manning
+    this.stationHud = null;
+    this.stationHeld = false; // left mouse button held
+    this.stationWasHeld = false;
+    this.stationLock = null;  // { id, t } the enemy jet being locked, and seconds held
+    this.stationPubAt = 0;    // countdown to the next shared update
+    this.stationShot = 0;     // key of the last shot fired from this client's station
+    this.stationShotTo = null;
+    this.stationRec = {};     // last shared record seen per team
+    this.stationSeen = {};    // when that record last changed (local clock)
+    this.stationShotNo = {};  // last shot key seen per team
+    this.threats = [];        // stations of the other team locking on this client's jet
+    this.incomingUntil = 0;   // warning for an incoming stinger shot lasts until this time
+    this.incomingFrom = null;
     this.warn = null;
     this.arrow = null;
     this.reset();
@@ -234,6 +250,7 @@ export class DogfightManager {
     } else {
       this.destroyVisuals();
       this.destroyTerminals();
+      this.leaveStation();
       this.destroyStingers();
       this.clearMissiles();
       this.reset();
@@ -581,7 +598,7 @@ export class DogfightManager {
   updateMissiles(delta) {
     const dt = Math.min(delta, 0.05);
     if (this.enabled) {
-      this.updateStingers(dt);
+      this.updateStationThreats(dt);
       this.updateStingerShots(dt);
       const targets = this.deps.getTargets();
       for (let i = this.missileShots.length - 1; i >= 0; i--) {
@@ -623,7 +640,7 @@ export class DogfightManager {
     this.fx = [];
   }
 
-  // ---------- stingers (garage roofs) ----------
+  // ---------- stingers (ground stations, one per garage) ----------
   ensureStingers() {
     if (this.stingerGroup) return;
     this.stingerGroup = new THREE.Group();
@@ -639,7 +656,7 @@ export class DogfightManager {
       const band = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.12, 1.62), accent);
       band.position.y = 0.66;
       g.add(base, tube, band);
-      g.position.set(s.x, s.y - 0.5, s.z);
+      g.position.set(s.x, s.y, s.z);
       this.stingerGroup.add(g);
     }
     this.scene.add(this.stingerGroup);
@@ -650,73 +667,254 @@ export class DogfightManager {
     this.stingerGroup = null;
   }
 
-  // True when a stinger at s can see the jet at (x, y, z): in range and no structure in between
-  stingerThreat(s, x, y, z) {
-    const dx = x - s.x;
-    const dy = (y + 1) - s.y;
-    const dz = z - s.z;
-    if (Math.hypot(dx, dy, dz) > STINGER_RANGE) return false;
+  // ---------- stinger stations (one inside each garage) ----------
+  // Stand next to your team's station and press H to man it. Aim with the mouse, hold left click
+  // on an enemy jet in the crosshair to lock it for 2 s, release to fire. Only the jet's pilot is
+  // targeted. The shared stations record lets that pilot see the lock and an arrow to the garage.
+  stationStand(s) {
+    return { x: s.x + (s.x < 0 ? -3 : 3), y: 0, z: s.z + 3 };
+  }
+
+  myUid() {
+    return this.deps.getUid ? this.deps.getUid() : null;
+  }
+
+  // True when the straight line from a to b is clear of structures
+  lineClear(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dz = b.z - a.z;
     for (let i = 1; i < 12; i++) {
       const t = i / 12;
-      if (this.deps.isBlocked(s.x + dx * t, s.z + dz * t, s.y + dy * t)) return false;
+      if (this.deps.isBlocked(a.x + dx * t, a.z + dz * t, a.y + dy * t)) return false;
     }
     return true;
   }
 
-  // Runs the locks. Only the jet's pilot is targeted, and only by stingers of the other team.
-  updateStingers(dt) {
+  // Position of a pilot's jet at its pilot's head height, or null when that pilot is gone
+  pilotPos(id) {
+    const p = this.deps.getPilots().find((q) => q.id === id && q.veh);
+    return p ? new THREE.Vector3(p.veh.x, p.veh.y + 1, p.veh.z) : null;
+  }
+
+  // The enemy jet closest to the crosshair inside the cone, in range and in sight, or null
+  stationTargetIn(eye, fwd) {
     const me = this.deps.getTeam && this.deps.getTeam();
-    const inJet = this.active && this.seat === 0 && this.kindOf(this.vehicleId) === 'jet';
-    for (const s of this.stingers) {
-      s.cool = Math.max(0, s.cool - dt);
-      if (!inJet || !me || s.team === me) {
-        s.lock = 0;
-        continue;
-      }
-      if (this.stingerThreat(s, this.x, this.y, this.z)) {
-        s.lock = Math.min(STINGER_LOCK, s.lock + dt);
-        if (s.lock >= STINGER_LOCK && s.cool <= 0) {
-          this.fireStinger(s);
-          s.lock = 0;
-          s.cool = STINGER_COOL;
-        }
-      } else {
-        s.lock = Math.max(0, s.lock - dt * 2);
-      }
+    let best = null;
+    for (const p of this.deps.getPilots()) {
+      if (!p.vehicle || !p.veh || p.team === me || this.kindOf(p.vehicle.id) !== 'jet') continue;
+      const to = { x: p.veh.x, y: p.veh.y + 1, z: p.veh.z };
+      const dx = to.x - eye.x;
+      const dy = to.y - eye.y;
+      const dz = to.z - eye.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1 || d > STINGER_RANGE) continue;
+      const dot = (dx * fwd.x + dy * fwd.y + dz * fwd.z) / d;
+      if (dot < STATION_CONE) continue;
+      if (!this.lineClear(eye, to)) continue;
+      if (!best || dot > best.dot) best = { id: p.id, dot };
+    }
+    return best;
+  }
+
+  // The shared record for a team's station, only if it is still live (changed in the last 1.5 s)
+  stationRecord(team) {
+    const rec = this.deps.getStations ? this.deps.getStations()[team] : null;
+    return rec && rec.uid && performance.now() - (this.stationSeen[team] || 0) < 1500 ? rec : null;
+  }
+
+  // Walk up and press H to man your team's station; press H again to leave it
+  toggleStation(camPos, team) {
+    if (!this.enabled) return false;
+    if (this.station) {
+      this.leaveStation(true);
+      return false;
+    }
+    if (this.active) {
+      this.deps.notify('Get out of the vehicle first.');
+      return false;
+    }
+    const idx = STINGERS.findIndex((s) => s.team === team);
+    if (idx < 0) {
+      this.deps.notify('Your team has no stinger station.');
+      return false;
+    }
+    const s = STINGERS[idx];
+    if (Math.hypot(camPos.x - s.x, camPos.z - s.z) > 7) {
+      this.deps.notify('Walk up to your team\'s stinger station.');
+      return false;
+    }
+    const rec = this.stationRecord(team);
+    if (rec && rec.uid !== this.myUid()) {
+      this.deps.notify('Someone is already on that stinger.');
+      return false;
+    }
+    this.station = { idx, team };
+    this.stationHeld = false;
+    this.stationWasHeld = false;
+    this.stationLock = null;
+    this.stationPubAt = 0;
+    this.ensureStationHud();
+    this.stationHud.style.display = 'block';
+    return true;
+  }
+
+  // Leaves the station. moveOut puts the player on the ground beside it.
+  leaveStation(moveOut = false) {
+    const st = this.station;
+    if (!st) return;
+    const s = STINGERS[st.idx];
+    this.station = null;
+    this.stationHeld = false;
+    this.stationWasHeld = false;
+    this.stationLock = null;
+    if (this.deps.writeStation) this.deps.writeStation(st.team, null);
+    if (this.stationHud) this.stationHud.style.display = 'none';
+    if (moveOut && this.deps.onExit) {
+      const stand = this.stationStand(s);
+      this.deps.onExit({ x: stand.x, y: 0, z: stand.z });
     }
   }
 
-  fireStinger(s) {
-    const pos = new THREE.Vector3(s.x, s.y, s.z);
-    const dir = new THREE.Vector3(this.x - s.x, (this.y + 1) - s.y, this.z - s.z).normalize();
+  // Left mouse button state, from main.js
+  setTrigger(down) {
+    this.stationHeld = !!down;
+  }
+
+  // Runs the manned station: aim, lock on, fire on release. Returns the camera position for this frame.
+  updateStation(delta, aim) {
+    const st = this.station;
+    if (!st) return null;
+    const s = STINGERS[st.idx];
+    const sc = this.stingers[st.idx];
+    const dt = Math.min(delta, 0.05);
+    const stand = this.stationStand(s);
+    const eye = { x: stand.x, y: 1.7, z: stand.z };
+    const cp = Math.cos(aim.pitch);
+    const fwd = { x: -Math.sin(aim.yaw) * cp, y: Math.sin(aim.pitch), z: -Math.cos(aim.yaw) * cp };
+    const lock = this.stationLock;
+    if (this.stationHeld && sc.cool <= 0) {
+      const hit = this.stationTargetIn(eye, fwd);
+      if (!hit) this.stationLock = null;
+      else if (!lock || lock.id !== hit.id) this.stationLock = { id: hit.id, t: 0 };
+      else lock.t = Math.min(STINGER_LOCK, lock.t + dt);
+    } else {
+      // Released: fire if the lock was complete and the station has cooled down
+      if (!this.stationHeld && this.stationWasHeld && lock && lock.t >= STINGER_LOCK && sc.cool <= 0) {
+        this.fireStation(st, s, lock.id, fwd);
+      }
+      this.stationLock = null;
+    }
+    this.stationWasHeld = this.stationHeld;
+    this.stationPubAt -= dt;
+    if (this.stationPubAt <= 0) {
+      this.stationPubAt = 0.2;
+      this.publishStation(st.team);
+    }
+    this.updateStationHud(sc);
+    return eye;
+  }
+
+  fireStation(st, s, targetId, fwd) {
+    const sc = this.stingers[st.idx];
+    sc.cool = STINGER_COOL;
+    const pos = new THREE.Vector3(s.x, 2, s.z);
+    const tp = this.pilotPos(targetId);
+    const dir = tp ? tp.clone().sub(pos).normalize() : new THREE.Vector3(fwd.x, fwd.y, fwd.z).normalize();
     const group = this.makeMissile();
     group.position.copy(pos);
     group.quaternion.setFromUnitVectors(FORWARD, dir);
     this.scene.add(group);
-    this.stingerShots.push({ group, pos, dir, life: 8 });
+    this.stingerShots.push({ group, pos, dir, life: 8, target: targetId });
+    this.stationShot = Date.now() + Math.random();
+    this.stationShotTo = targetId;
+    this.publishStation(st.team);
   }
 
-  // Homing missiles turn towards the jet and explode on it. Only the jet's own client applies the hit.
+  // Shares the station's state so the target jet sees the lock, the arrow and the shot
+  publishStation(team) {
+    const lock = this.stationLock;
+    const ratio = lock ? Math.min(1, lock.t / STINGER_LOCK) : 0;
+    if (!this.deps.writeStation) return;
+    this.deps.writeStation(team, {
+      uid: this.myUid(),
+      lock: Math.round(ratio * 100) / 100,
+      target: lock && ratio > 0 ? lock.id : null,
+      shot: this.stationShot,
+      shotTo: this.stationShotTo || null
+    });
+  }
+
+  ensureStationHud() {
+    if (this.stationHud) return;
+    this.stationHud = document.createElement('div');
+    this.stationHud.id = 'dog-station';
+    this.stationHud.style.cssText = 'position:fixed; left:50%; bottom:28px; transform:translateX(-50%); z-index:50; font-family:var(--font-display); color:#e6f7ff; background:rgba(5,10,20,0.7); border-radius:4px; padding:8px 16px; letter-spacing:2px; text-align:center; pointer-events:none; display:none;';
+    document.body.appendChild(this.stationHud);
+  }
+
+  updateStationHud(sc) {
+    if (!this.stationHud) return;
+    const lock = this.stationLock;
+    const state = sc.cool > 0 ? `RELOADING ${sc.cool.toFixed(1)}s` : 'READY';
+    const aim = lock
+      ? `LOCK ${Math.round(Math.min(1, lock.t / STINGER_LOCK) * 100)}%`
+      : 'HOLD LEFT CLICK ON AN ENEMY JET';
+    this.stationHud.textContent = `STINGER · ${state} · ${aim} · H TO LEAVE`;
+  }
+
+  // Target side: reads the other team's stations. Warns this client's jet about locks and shots.
+  updateStationThreats(dt) {
+    const now = performance.now();
+    const recs = this.deps.getStations ? this.deps.getStations() : {};
+    const me = this.deps.getTeam && this.deps.getTeam();
+    const myId = this.myUid();
+    const threats = [];
+    for (const sc of this.stingers) {
+      sc.cool = Math.max(0, sc.cool - dt);
+      if (sc.team === me) continue;
+      const rec = recs[sc.team] || null;
+      if (rec !== this.stationRec[sc.team]) {
+        this.stationRec[sc.team] = rec;
+        this.stationSeen[sc.team] = now;
+      }
+      if (rec && rec.shot !== undefined) {
+        const seen = this.stationShotNo[sc.team];
+        if (seen === undefined) {
+          this.stationShotNo[sc.team] = rec.shot; // already there when we looked: not a new shot
+        } else if (rec.shot !== seen) {
+          this.stationShotNo[sc.team] = rec.shot;
+          if (rec.shotTo === myId) {
+            this.incomingUntil = now + 3000;
+            this.incomingFrom = { x: sc.x, z: sc.z };
+          }
+        }
+      }
+      const live = rec && rec.uid && now - (this.stationSeen[sc.team] || 0) < 1500;
+      if (live && rec.target === myId && rec.lock > 0) {
+        threats.push({ team: sc.team, x: sc.x, z: sc.z, lock: rec.lock });
+      }
+    }
+    this.threats = threats;
+  }
+
+  // Moves the stinger missiles this client fired; they home on their target and hit it
   updateStingerShots(dt) {
-    const inJet = this.active && this.kindOf(this.vehicleId) === 'jet';
     for (let i = this.stingerShots.length - 1; i >= 0; i--) {
       const m = this.stingerShots[i];
-      if (!inJet) {
-        this.scene.remove(m.group);
-        this.stingerShots.splice(i, 1);
-        continue;
-      }
       m.life -= dt;
-      const target = new THREE.Vector3(this.x, this.y + 1, this.z);
-      const want = target.clone().sub(m.pos).normalize();
-      m.dir.lerp(want, Math.min(1, dt * 3)).normalize();
+      const tp = this.pilotPos(m.target);
+      if (tp) {
+        const want = tp.clone().sub(m.pos).normalize();
+        m.dir.lerp(want, Math.min(1, dt * 3)).normalize();
+      }
       m.pos.addScaledVector(m.dir, STINGER_SPEED * dt);
       m.group.position.copy(m.pos);
       m.group.quaternion.setFromUnitVectors(FORWARD, m.dir);
-      const hitMe = target.distanceTo(m.pos) < 3;
-      const boom = hitMe || m.life <= 0 || m.pos.y <= 0.2 || this.deps.isBlocked(m.pos.x, m.pos.z, m.pos.y);
+      const hitIt = !!tp && tp.distanceTo(m.pos) < 3;
+      const boom = hitIt || m.life <= 0 || m.pos.y <= 0.2 || this.deps.isBlocked(m.pos.x, m.pos.z, m.pos.y);
       if (boom) {
-        if (hitMe) this.deps.hurt(STINGER_DAMAGE);
+        if (hitIt) this.deps.sendHit(m.target, STINGER_DAMAGE, 'Stinger');
         this.explode(m.pos.clone(), false);
         this.scene.remove(m.group);
         this.stingerShots.splice(i, 1);
@@ -724,16 +922,13 @@ export class DogfightManager {
     }
   }
 
-  // The nearest thing to warn about: a stinger missile in flight, or a stinger locking on
+  // The nearest thing to warn about: a stinger shot at this jet, or a lock on it
   alertTarget() {
-    if (this.stingerShots.length) {
-      const m = this.stingerShots[0];
-      return { x: m.pos.x, z: m.pos.z, text: 'INCOMING STINGER MISSILE' };
+    if (this.incomingUntil > performance.now() && this.incomingFrom) {
+      return { x: this.incomingFrom.x, z: this.incomingFrom.z, text: 'INCOMING STINGER MISSILE' };
     }
-    const s = this.stingers.find((st) => st.lock > 0);
-    if (s) {
-      return { x: s.x, z: s.z, text: `STINGER LOCK ${Math.round((s.lock / STINGER_LOCK) * 100)}% · ${s.team.toUpperCase()} GARAGE` };
-    }
+    const t = this.threats[0];
+    if (t) return { x: t.x, z: t.z, text: `STINGER LOCK ${Math.round(t.lock * 100)}% · ${t.team.toUpperCase()} GARAGE` };
     return null;
   }
 
@@ -748,7 +943,8 @@ export class DogfightManager {
       const def = defs[id];
       if (def.team && def.team !== team) continue; // the other team's garage car is off limits
       const o = occ[id];
-      const st = (o && o.state) || def.dock;
+      // Where it is now: a pilot's position, else where it was left, else its dock
+      const st = (o && o.state) || this.parkedFor(id) || def.dock;
       const d = Math.hypot(st.x - px, st.z - pz);
       if (d < bestD) { bestD = d; best = { id, occ: o, st }; }
     }
@@ -757,6 +953,10 @@ export class DogfightManager {
 
   toggleBoard(camPos, team) {
     if (!this.enabled) return false;
+    if (this.station) {
+      this.deps.notify('Leave the stinger first (H).');
+      return false;
+    }
     if (this.active) { this.exit(); return false; }
     const near = this.nearestVehicle(camPos.x, camPos.z, team);
     if (!near) {
